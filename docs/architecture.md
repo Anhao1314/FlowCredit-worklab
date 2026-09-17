@@ -63,3 +63,29 @@ The earlier Creation animation is a mock lifecycle with an embedded simulated Wo
 ## Dependency acquisition
 
 Harness uses exact official npm versions; the full peer closure is pinned to prevent an alpha dependency from silently pulling a newer RC. Core uses a public commit/archive checksum because upstream lacks a root package manifest. Only domain directories and required validation metadata are extracted into an ignored dependency directory. No developer machine checkout is a dependency.
+
+## Unified workspace
+
+The platform has one web entry and one runtime. Research overview, task collaboration,
+read-only memory and execution history share the same live Control Plane state.
+Activation is a modal capability control; providing a key does not dispatch work.
+Users explicitly start a bound task. Researcher output, Reviewer feedback, unresolved
+questions and the final candidate memo appear together, with citations opening the
+**task's fixed snapshot**, not the current memory revision.
+
+`GET /api/memory` exposes the four allowlisted synthetic records and the explicitly
+labelled current Claim revision through the actual read-only Core adapter. It creates
+no Task, writes no Snapshot and grants no Agent permissions. No credential is needed
+for human browsing. This human browsing projection is distinct from the immutable
+Agent task snapshot. Production memory selection is not implemented.
+
+The UI derives action availability from task state, revision availability, runtime
+activity and remaining budget; server checks remain authoritative. Stand Down stays
+available during a long request. Client response sequencing prevents an older request
+from overwriting a newer stop notice. Runtime generation checks isolate late model
+responses, including provider-validation status. Interrupted or blocked tasks show
+reasons rather than offering an unsafe repeat action.
+
+The Creation animation remains a future visual shell; the current functional
+activation dialog and unified workspace are wired to real backend state. Historical
+mock workspaces and additional simulated agents are not imported.

@@ -61,3 +61,24 @@ All mutable data stays in ignored `.runtime/`: synthetic Knowledge SQLite, Contr
 See [architecture](docs/architecture.md), [security model](docs/security-model.md), [source inventory](docs/source-inventory.md), and [validated milestones](docs/validated-milestones.md).
 
 Limitations: local single-user operation; synthetic Knowledge store rather than private production research; model review is fallible and incomplete/interrupted work is not automatically retried. There is no scheduler, event inbox, Human Apply, or automatic authoritative write.
+
+## One connected workspace
+
+Open the platform once and use the left navigation:
+
+1. **研究概览** — current synthetic Claim, pending work and persistent Duty context.
+2. **研究记忆** — browse accepted evidence, pending candidate R-04 and provenance with AI off.
+3. **任务协作** — create E to freeze v1 and R-01–R-04, provide a temporary key, then explicitly start research. Researcher and Reviewer exchange structured artifacts; their outputs and unresolved questions appear in the same task.
+4. **执行记录** — actual lifecycle events, tool reads, independent sessions and request ledger.
+
+Citation links open the task's original source excerpt. A candidate memo does not
+update the Claim or evidence admission state. Stand Down clears the capability while
+retaining work. After restarting, browsing remains available; resuming eligible work
+requires a new key. Interrupted or integrity-blocked work is shown for inspection,
+not automatically retried. The expandable synthetic-version check creates v2 only
+by explicit user action, leaving E bound to v1.
+
+The offline HTTP workflow test traverses the actual server, Core, Harness and
+persistent store. Only model transport is stubbed in the test child process. A separate
+late-response test verifies that stopping cannot produce a successful memo or revive
+provider-validation status. No stub is imported by the production startup command.

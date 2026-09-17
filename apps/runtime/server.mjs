@@ -52,9 +52,27 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === "GET") {
       if (req.url === "/api/state") return send(200, status());
+      if (req.url === "/api/memory") {
+        // Human browsing is read-only and never creates a Task or grants Agent scope.
+        const version = adapter.latestVersion();
+        const view = adapter.snapshot(version === 1 ? "E" : "F", version, [
+          "R-01",
+          "R-02",
+          "R-03",
+          "R-04",
+        ]);
+        return send(200, {
+          synthetic: true,
+          subject: "Northstar Compute / 北辰算力",
+          claim: view.claim,
+          asOf: view.asOf,
+          records: view.records,
+        });
+      }
       const files = {
         "/": "index.html",
         "/app.js": "app.js",
+        "/view-model.js": "view-model.js",
         "/styles.css": "styles.css",
       };
       if (files[req.url]) {
@@ -104,7 +122,11 @@ const server = createServer(async (req, res) => {
         });
         return send(200, status());
       case "/api/create-f":
-        if (runtime.busy || store.task("E")?.state !== "MEMO_READY")
+        if (
+          runtime.busy ||
+          store.task("E")?.state !== "MEMO_READY" ||
+          adapter.latestVersion() !== 2
+        )
           throw Error("TASK_E_NOT_READY");
         store.createBound(adapter.snapshot("F", 2, ["R-01", "R-02", "R-03"]));
         return send(200, status());

@@ -1,130 +1,255 @@
-const $ = (id) => document.getElementById(id),
-  esc = (s) =>
-    String(s ?? "").replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        })[c],
-    );
-let busy = false,
-  last = "";
-async function load() {
-  const s = await fetch("/api/state").then((r) => r.json());
-  $("power").textContent = s.runtime.modelOnline
-    ? "Swarm Online · Capability Ready"
-    : "Dormant · Model Offline";
-  $("power").className = "pill " + (s.runtime.modelOnline ? "online" : "");
-  $("restored").textContent = s.runtime.restored
-    ? "Research State Restored"
-    : "Northstar Continuous Research";
-  $("boot").textContent =
-    `PID ${s.runtime.pid} · ${s.runtime.liveSessions} 个会话 · 浏览器存储 ${localStorage.length + sessionStorage.length} 项`;
-  $("memory").textContent =
-    `Research Memory · READ ONLY · 测试库当前 v${s.knowledge.latestVersion}`;
+import { project, taskStates } from "./view-model.js";
+const $ = (id) => document.getElementById(id);
+const esc = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+let state,
+  memory,
+  pending = 0,
+  stopping = false,
+  activating = false,
+  requestVersion = 0,
+  actionVersion = 0;
+const signatures = new Map();
+function html(id, value) {
+  if (signatures.get(id) === value) return;
+  const element = $(id);
+  const opened = [
+    ...element.querySelectorAll("details[open][data-disclosure]"),
+  ].map((e) => e.dataset.disclosure);
+  element.innerHTML = value;
+  element.querySelectorAll("details[data-disclosure]").forEach((e) => {
+    e.open = opened.includes(e.dataset.disclosure);
+  });
+  signatures.set(id, value);
+}
+const list = (items) => (items || []).map((x) => `<li>${esc(x)}</li>`).join("");
+const claim = (c, title) =>
+  `<div class="claim"><span class="pill">${esc(title)} · 合成记录</span><h2>“${esc(c.text)}”</h2><p>CLM-001 · v${esc(c.version)} <span class="subtle">研究观点，不是模型结论</span></p></div>`;
+function source(record, prefix) {
+  return `<article class="source" id="${prefix}-${esc(record.id)}" tabindex="-1"><div class="task-head"><b>${esc(record.label)}</b><span class="pill ${record.status === "accepted" ? "accepted" : "candidate"}">${record.status === "accepted" ? "已接纳证据" : "候选材料 · 未接纳"}</span></div><p>${esc(record.text)}</p><p class="subtle">${esc(record.source.title)} · ${esc(record.source.documentDate)} · 合成来源</p><details><summary>来源与原文定位</summary><p>${esc(record.source.publisher)}<br>${esc(record.source.url)}</p><pre>${esc(JSON.stringify({ sourceId: record.sourceId, evidenceId: record.evidenceId, candidateId: record.candidateId, excerpt: record.excerptReference }, null, 2))}</pre><p class="subtle">提供文档与摘录定位；不提供更细的句级或单元格回链。</p></details></article>`;
+}
+function render() {
+  if (!state || !memory) return;
+  const p = project(state),
+    locked = pending > 0 || stopping;
+  $("power").textContent = state.runtime.modelOnline
+    ? "已供能 · 停止 / 状态"
+    : "Dormant · 激活系统";
+  $("power").classList.toggle("online", state.runtime.modelOnline);
   $("budget").textContent =
-    `已记账 ${s.budget.length} / 6 次真实请求 · 含工具后的模型续轮`;
-  $("create-e").disabled = busy || s.tasks.some((t) => t.id === "E");
-  $("v2").disabled = busy || !s.tasks.length || s.knowledge.latestVersion === 2;
-  $("create-f").disabled =
-    busy ||
-    !s.tasks.some((t) => t.id === "E" && t.state === "MEMO_READY") ||
-    s.tasks.some((t) => t.id === "F");
-  $("key").disabled = busy || s.runtime.modelOnline;
-  const sig = JSON.stringify([
-    s.tasks,
-    s.artifacts,
-    s.runtime.modelOnline,
-    s.runtime.busy,
-    busy,
-  ]);
-  if (sig !== last) {
-    last = sig;
-    $("tasks").innerHTML = s.tasks
-      .map((t) => {
-        const snap = s.snapshots.find(
-            (x) => x.snapshotId === t.context.snapshotId,
-          ),
-          a = s.artifacts.find(
-            (x) => x.id === (t.checkpoint.memo || t.checkpoint.research),
-          );
-        return `<article class="task"><div class="task-head"><strong>Task ${t.id} · Bound to v${t.context.claim.version}</strong><span class="pill">${esc(t.state)}</span></div><h2>“${esc(t.context.claim.text)}”</h2><div class="steps"><span>Snapshot ${esc(t.context.snapshotId)}</span><span>As Of ${esc(t.context.asOf.slice(0, 10))}</span><span>授权 ${snap.records.map((r) => r.label).join(" / ")}</span></div><p class="subtle">下一步：${esc(t.checkpoint.nextAction)} ${esc(t.checkpoint.reason || "")}</p><button class="primary resume" data-task="${t.id}" ${busy || s.runtime.busy || !s.runtime.modelOnline ? "disabled" : ""}>Resume Task ${t.id}</button>${
-          a
-            ? '<p class="subtle">AI-assisted candidate · No Evidence Admission · No Claim Revision Applied</p>' +
-              a.content.observations
-                .map(
-                  (o) =>
-                    `<div class="observation"><p>${esc(o.observation)}</p><div class="refs">${o.citations
-                      .map((id) => {
-                        const r = snap.records.find((r) => r.id === id);
-                        return `<a href="#${t.id}-${id}">${esc(r?.label || id)} ↗</a>`;
-                      })
-                      .join(
-                        "",
-                      )}</div><p class="subtle">${esc(o.limitations.join("；"))}</p></div>`,
-                )
-                .join("")
-            : '<p class="subtle">尚无候选发现。Researcher 必须先通过工具读取授权原文。</p>'
-        }<details><summary>查看固定来源、真实对象标识与绑定</summary>${snap.records.map((r) => `<div class="source" id="${t.id}-${r.id}"><b>${r.label}</b> · ${r.status === "accepted" ? "已接纳 · 合成测试" : "Pending · 未接纳候选"}<br>${esc(r.text)}<p class="subtle">Record: ${esc(r.id)}<br>Source: ${esc(r.sourceId)}<br>Excerpt: ${esc(r.chunkId)}</p></div>`).join("")}<pre>${esc(JSON.stringify({ snapshotId: snap.snapshotId, baseRevisionId: snap.baseRevisionId, digest: snap.contentDigest, checkpoint: t.checkpoint }, null, 2))}</pre></details></article>`;
-      })
-      .join("");
-  }
+    `请求预算：已记账 ${state.budget.length} / ${state.runtime.requestLimit}`;
+  $("task-count").textContent = state.tasks.length;
+  $("create-e").disabled = locked || !p.canCreateE;
+  $("v2").disabled = locked || !p.canReviseFixture;
+  $("create-f").disabled = locked || !p.canCreateF;
+  $("key").disabled = locked || state.runtime.modelOnline;
+  $("activation").querySelector("button").disabled =
+    locked || state.runtime.modelOnline;
+  $("stop").disabled =
+    stopping || (!state.runtime.modelOnline && !state.runtime.busy);
+  $("activation-status").textContent = activating
+    ? "正在激活…"
+    : stopping
+      ? "正在停止派发并等待执行退出…"
+      : state.runtime.modelOnline
+        ? state.runtime.providerValidated
+          ? "已供能 · 模型请求已返回成功响应"
+          : "已供能 · Key 尚待首次研究请求验证"
+        : "当前未供能，研究状态已保留。";
+  const current =
+    p.tasks.find((t) => t.id === state.duty.currentTask) || p.tasks.at(-1);
+  html(
+    "overview-content",
+    `${claim(memory.claim, "当前研究观点")}<div class="next"><div><h2>${p.attention.length ? "有任务需要处理" : p.readyMemos.length ? "候选备忘等待你的判断" : current ? "继续固定版本的研究" : "准备第一项研究"}</h2><p>${esc(p.attention[0]?.explanation || current?.explanation || "先创建任务并固定资料范围，再激活模型并开始研究。")}</p></div><a class="button primary" href="#tasks">${p.attention.length ? "查看原因" : "进入任务协作"}</a></div><div class="planes"><div><b>研究记忆</b><p>只读连接 · 当前 v${state.knowledge.latestVersion}</p><a href="#memory">浏览依据与来源</a></div><div><b>协作执行</b><p>${state.runtime.busy ? "正在执行" : "等待明确任务"} · Researcher / Reviewer</p><a href="#tasks">查看任务与复核</a></div><div><b>持久状态</b><p>${state.runtime.restored ? "已恢复保存的任务" : "当前进程已连接"} · ${state.tasks.length} 项任务</p><a href="#activity">查看执行记录</a></div></div><p class="subtle">${esc(state.duty.responsibility)} 暂无自动触发或后台巡检。</p>`,
+  );
+  html(
+    "memory-content",
+    `${claim(memory.claim, "当前研究观点")}<p class="section-note">截止 ${esc(memory.asOf.slice(0, 10))} · 以下资料来自真实 Core 的独立合成库。任务中使用的历史版本请在任务内查看。</p>${memory.records.map((r) => source(r, "memory")).join("")}`,
+  );
+  html(
+    "task-list",
+    p.tasks.length
+      ? p.tasks
+          .map((t) => {
+            const snap = state.snapshots.find(
+              (x) => x.snapshotId === t.context.snapshotId,
+            );
+            const artifact = (key) =>
+              state.artifacts.find((x) => x.id === t.checkpoint[key]);
+            const research = artifact("research"),
+              review = artifact("review"),
+              memo = artifact("memo"),
+              output = memo || research;
+            return `<article class="task" id="task-${t.id}"><div class="task-head"><b>任务 ${t.id} · 固定 v${t.context.claim.version}</b><span class="pill">${esc(t.label)}</span></div><h2>“${esc(t.context.claim.text)}”</h2><p class="subtle">${esc(t.context.snapshotId)} · 截止 ${esc(t.context.asOf.slice(0, 10))} · 授权 ${snap.records.map((r) => esc(r.label)).join(" / ")}</p><ol class="pipeline"><li class="done">固定目标与授权</li><li class="${research ? "done" : t.state === "RESEARCH_RUNNING" ? "active" : ""}">Researcher · ${research ? "已交付" : t.state === "RESEARCH_RUNNING" ? "研究中" : "待执行"}</li><li class="${review ? "done" : t.state === "REVIEW_RUNNING" ? "active" : ""}">Reviewer · ${review ? "已交付" : t.state === "REVIEW_RUNNING" ? "复核中" : "待执行"}</li><li class="${memo ? "done" : ""}">候选备忘 · ${memo ? "就绪" : "未形成"}</li></ol><p>${esc(t.explanation)}</p>${t.state.endsWith("_PENDING") ? `<button class="primary resume" data-task="${t.id}" ${locked || !t.canResume ? "disabled" : ""}>${t.state === "RESEARCH_PENDING" ? "开始研究" : "继续未完成阶段"}</button>${!state.runtime.modelOnline ? " <button data-power>提供临时 Key</button>" : ""}` : ""}
+    ${output ? `<section class="candidate-output"><h3>${memo ? "候选研究备忘" : "研究候选 · 尚未形成最终备忘"}</h3><p class="subtle">尚未经人工接纳 · 不改变正式研究记录</p>${output.content.observations.map((o) => `<div class="observation"><p>${esc(o.observation)}</p><div class="refs">${o.citations.map((id) => `<a href="#${t.id}-${esc(id)}" data-source>${esc(snap.records.find((r) => r.id === id)?.label || id)} 查看依据</a>`).join("")}</div><ul class="subtle">${list(o.limitations)}</ul></div>`).join("")}</section>` : '<p class="empty">尚无候选发现。执行者需要先实际读取授权原文。</p>'}
+    ${review ? `<section class="review"><h3>独立复核 · ${esc(review.content.decision)}</h3><p class="subtle">模型 Reviewer 的判断，不是人工批准。</p><ul>${list(review.content.issues.map((i) => i.detail))}</ul><ul class="subtle">${list(review.content.reviewLimitations)}</ul></section>` : ""}
+    ${t.checkpoint.unresolvedIssues?.length ? `<section class="review"><h3>仍待确认</h3><ul>${list(t.checkpoint.unresolvedIssues)}</ul></section>` : ""}
+    <details data-disclosure="${t.id}-sources"><summary>固定版本的授权资料与来源</summary>${snap.records.map((r) => source(r, t.id)).join("")}</details><details data-disclosure="${t.id}-binding"><summary>任务绑定与持久检查点</summary><pre>${esc(JSON.stringify({ snapshotId: snap.snapshotId, baseRevisionId: snap.baseRevisionId, digest: snap.contentDigest, checkpoint: t.checkpoint }, null, 2))}</pre></details></article>`;
+          })
+          .join("")
+      : '<div class="empty"><h2>从现有观点创建第一项任务</h2><p>创建会固定 v1 与四条资料，不会调用模型。R-04 始终是未接纳候选材料。</p></div>',
+  );
+  const eventNames = {
+    BOOT: "运行时启动",
+    CAPABILITY_ACTIVATED: "临时能力已激活",
+    TASK_BOUND: "任务范围已固定",
+    TASK_STATE: "任务状态变化",
+    HARNESS_RECORDS_READ: "已读取授权原文",
+    SESSION_RELEASED: "独立会话已释放",
+    STAND_DOWN: "协作已停止，Key 已清除",
+    TEST_ADMIN_REVISION_CREATED: "合成库新增测试版本",
+  };
+  html(
+    "activity-content",
+    `<p>已记账 ${state.budget.length} 次请求；${state.runtime.liveSessions} 个当前会话。${state.runtime.restored ? "已恢复持久研究任务，未恢复任何 Key。" : ""}</p><ol class="timeline">${state.events.map((e) => `<li><time>${esc(new Date(e.created).toLocaleString("zh-CN"))}</time><div><b>${esc(eventNames[e.kind] || e.kind)}</b><p>${esc(e.detail.task ? "任务 " + e.detail.task + " " : "")}${esc(taskStates[e.detail.state] || e.detail.revision || "")}${e.kind === "HARNESS_RECORDS_READ" ? ` · ${e.detail.recordIds.length} 条原文 · ${esc(e.detail.snapshotId)}` : ""}</p><details><summary>事件详情</summary><pre>${esc(JSON.stringify(e.detail, null, 2))}</pre></details></div></li>`).join("")}</ol>`,
+  );
   $("process").textContent = JSON.stringify(
-    { runs: s.runs, budget: s.budget, events: s.events },
+    { runs: state.runs, budget: state.budget },
     null,
     2,
   );
 }
+async function json(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok) throw Error(data.error || "SERVICE_UNAVAILABLE");
+  return data;
+}
+async function load() {
+  const version = ++requestVersion;
+  const [next, view] = await Promise.all([
+    json("/api/state"),
+    json("/api/memory"),
+  ]);
+  if (version !== requestVersion) return;
+  state = next;
+  memory = view;
+  render();
+}
+const errors = {
+  MODEL_CAPABILITY_OFF: "临时模型能力已关闭，请重新激活。",
+  MODEL_BUDGET_EXHAUSTED: "请求预算已用完，已停止派发。",
+  TASK_NOT_RESUMABLE: "此任务需要人工检查，不能自动重试。",
+  CANCELED: "执行已停止，未完成结果不会作为成功备忘。",
+  BUSY: "已有任务正在执行，请等待或停止协作。",
+  KEY_REQUIRED: "请输入有效的非空 Key。",
+  OPERATION_FAILED: "操作未完成，请查看执行记录。",
+};
 async function act(name, body = {}) {
-  busy = true;
-  $("notice").textContent = name === "activate" ? "Activating…" : "正在处理…";
-  load();
+  if (name !== "stand-down" && (pending || stopping)) return;
+  const version = ++actionVersion;
+  pending++;
+  if (name === "stand-down") stopping = true;
+  if (name === "activate") activating = true;
+  $("notice").textContent =
+    name === "resume"
+      ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
+      : name === "activate"
+        ? "正在提供临时能力…"
+        : "正在保存状态…";
+  if (name === "activate") $("activation-status").textContent = "正在激活…";
+  render();
   try {
-    const req = fetch("/api/" + name, {
+    const request = json("/api/" + name, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     body.key = "";
-    const r = await req,
-      x = await r.json();
-    if (!r.ok) throw Error(x.error);
-    $("notice").textContent =
-      name === "test-v2"
-        ? "测试库已新增 v2；Task E 的 S1 仍绑定 v1。"
-        : "状态已保存。";
+    await request;
+    if (version === actionVersion) {
+      $("notice").textContent =
+        name === "activate"
+          ? "系统已供能。请在任务协作中主动开始研究。"
+          : name === "stand-down"
+            ? "协作已停止，Key 已清除。研究状态已保留。"
+            : name === "test-v2"
+              ? "合成库已新增 v2；已有任务保持原版本。"
+              : "状态已保存。";
+      if (name === "activate") {
+        $("power-panel").close();
+        location.hash = "#tasks";
+      }
+    }
   } catch (e) {
-    $("notice").textContent = e.message;
+    if (version === actionVersion) {
+      $("notice").textContent =
+        errors[e.message] || `操作未完成（${e.message}），请查看执行记录。`;
+      $("activation-status").textContent = $("notice").textContent;
+    }
   } finally {
-    busy = false;
-    await load();
+    pending--;
+    if (name === "stand-down") stopping = false;
+    if (name === "activate") activating = false;
+    await load().catch(disconnected);
   }
 }
+function disconnected() {
+  $("power").textContent = "运行时连接中断";
+  $("notice").textContent =
+    "无法连接本地运行时。当前内容是最后读取的状态；请重新启动平台。";
+  document
+    .querySelectorAll("#content button, #activation button, #key, #stop")
+    .forEach((b) => {
+      b.disabled = true;
+    });
+}
+function route() {
+  const target = location.hash.slice(1) || "overview";
+  const page = ["overview", "tasks", "memory", "activity"].includes(target)
+    ? target
+    : target === "content"
+      ? "overview"
+      : target.startsWith("memory-")
+        ? "memory"
+        : "tasks";
+  document.querySelectorAll(".view").forEach((e) => {
+    e.hidden = e.id !== page;
+  });
+  document.querySelectorAll("nav a").forEach((a) => {
+    if (a.hash === "#" + page) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  const source = document.getElementById(target);
+  if (source?.classList.contains("source")) {
+    let parent = source.parentElement;
+    while (parent) {
+      if (parent.tagName === "DETAILS") parent.open = true;
+      parent = parent.parentElement;
+    }
+    source.focus();
+    source.scrollIntoView({ block: "center" });
+  }
+}
+$("power").onclick = () => $("power-panel").showModal();
 $("activation").onsubmit = (e) => {
   e.preventDefault();
   const key = $("key").value;
   $("key").value = "";
   act("activate", { key });
 };
+$("stop").onclick = () => act("stand-down");
 $("create-e").onclick = () => act("create-e");
 $("v2").onclick = () => act("test-v2");
 $("create-f").onclick = () => act("create-f");
-$("stop").onclick = () => act("stand-down");
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".resume");
   if (b) act("resume", { taskId: b.dataset.task });
-  const a = e.target.closest('a[href^="#"]');
-  if (a) a.closest("article").querySelector("details").open = true;
+  if (e.target.closest("[data-power]")) $("power-panel").showModal();
+  const a = e.target.closest("[data-source]");
+  if (a) {
+    e.preventDefault();
+    location.hash = a.getAttribute("href");
+    route();
+  }
 });
-load();
-setInterval(
-  () =>
-    load().catch(() => {
-      $("power").textContent = "服务已退出";
-    }),
-  2500,
-);
+window.addEventListener("hashchange", route);
+route();
+load().then(route).catch(disconnected);
+setInterval(() => load().catch(disconnected), 2000);

@@ -218,3 +218,59 @@ test("actual FlowCredit services, read-only adapter, revision pinning, Harness t
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("stand down isolates a late model response and preserves the stopped reason", async () => {
+  const dir = mkdtempSync(join(root, ".test-cancel-"));
+  const original = globalThis.fetch;
+  let adapter, store, runtime;
+  try {
+    seed(join(dir, "knowledge"));
+    adapter = new ResearchAdapter(join(dir, "knowledge"));
+    store = new Store(join(dir, "control"));
+    store.createBound(adapter.snapshot("E", 1, ["R-03"]));
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    let arrive, finish;
+    const arrived = new Promise((resolve) => {
+      arrive = resolve;
+    });
+    runtime.originalFetch = async () => {
+      arrive();
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    };
+    runtime.activate("offline-cancel-sentinel");
+    const execution = runtime.execute("E");
+    const rejected = assert.rejects(execution, /CANCELED/);
+    await arrived;
+    const stopping = runtime.standDown();
+    // This response ignores cancellation deliberately: the generation guard must isolate it.
+    finish(
+      sse({
+        choices: [
+          {
+            index: 0,
+            delta: { role: "assistant", content: "{}" },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+    );
+    await stopping;
+    await rejected;
+    assert.equal(store.task("E").state, "NEEDS_ATTENTION");
+    assert.equal(store.task("E").checkpoint.reason, "CANCELED");
+    assert.equal(store.snapshot().artifacts.length, 0);
+    assert.equal(runtime.status().runtime.modelOnline, false);
+    assert.equal(runtime.status().runtime.providerValidated, false);
+    assert.equal(runtime.status().runtime.liveSessions, 0);
+    assert.equal(store.count(), 1);
+  } finally {
+    if (runtime) await runtime.close();
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

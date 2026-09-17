@@ -80,6 +80,7 @@ export class Runtime {
         throw Error("REQUEST_POLICY");
       if (this.requestIds.length >= (this.currentRole === "Researcher" ? 2 : 1))
         throw Error("RUN_REQUEST_LIMIT");
+      const requestGeneration = this.generation;
       const id = this.store.reserve(this.currentRun);
       this.requestIds.push(id);
       try {
@@ -87,7 +88,12 @@ export class Runtime {
           ...options,
           redirect: "error",
         });
-        if (response.ok) this.providerValidated = true;
+        if (
+          response.ok &&
+          requestGeneration === this.generation &&
+          this.credentials.hasPower()
+        )
+          this.providerValidated = true;
         this.store.budgetUpdate(id, response.ok ? "HTTP_OK" : "HTTP_ERROR", {
           status: response.status,
           bodyDigest: hash(options.body),
@@ -198,24 +204,22 @@ export class Runtime {
       },
     }));
     const fresh = handle.agent.session.snapshotEvents().length === 0;
-    this.store.db
-      .prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)")
-      .run(
-        run,
-        task.id,
-        role,
-        session,
-        this.boot,
-        "RUNNING",
-        JSON.stringify({
-          freshSession: fresh,
-          inputDigest: hash(input),
-          researchArtifactId: input.researchArtifact?.id ?? null,
-          sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
-            (r) => r.id,
-          ),
-        }),
-      );
+    this.store.db.prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)").run(
+      run,
+      task.id,
+      role,
+      session,
+      this.boot,
+      "RUNNING",
+      JSON.stringify({
+        freshSession: fresh,
+        inputDigest: hash(input),
+        researchArtifactId: input.researchArtifact?.id ?? null,
+        sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
+          (r) => r.id,
+        ),
+      }),
+    );
     this.store.state(
       task.id,
       role === "Researcher" ? "RESEARCH_RUNNING" : "REVIEW_RUNNING",
