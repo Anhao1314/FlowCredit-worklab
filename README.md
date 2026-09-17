@@ -82,3 +82,20 @@ The offline HTTP workflow test traverses the actual server, Core, Harness and
 persistent store. Only model transport is stubbed in the test child process. A separate
 late-response test verifies that stopping cannot produce a successful memo or revive
 provider-validation status. No stub is imported by the production startup command.
+
+### Creation homepage
+
+The default entry now opens the Creation of Adam fingertip scene. Enter a DeepSeek
+key at the gap, activate, and the real runtime acknowledgement releases the contact
+and wave animation before opening this platform's workspace. No model request is
+made until you explicitly start a research task. The key is not validated by the
+animation. Use “只读查看研究记忆” to enter without a key.
+
+The workspace logo returns to the homepage. “停止 / 状态” clears the capability;
+reconnecting from a workspace page returns to that page after activation. Cancellation
+also clears the key, including when the activation response is delayed. Reduced motion
+can be enabled on the homepage and respects the operating-system preference.
+
+Artwork attribution: [local asset notes](apps/web/assets/ATTRIBUTION.md). Assets are
+served by the same loopback runtime; there is no CDN or embedded old demo. Use
+`npm run dev`, not `file://`, because this entry requires the actual platform backend.

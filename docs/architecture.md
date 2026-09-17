@@ -56,9 +56,25 @@ All endpoints are local to the loopback host, reject incorrect Host/Origin, and 
 
 Experience states are Dormant, transient Activating, and Swarm Online / capability ready. Provider validity remains unverified until an actual request; no fake successful inference is reported.
 
-## Creation UI seam
+## Creation activation entry
 
-The earlier Creation animation is a mock lifecycle with an embedded simulated Workspace and additional visual roles. P0 deliberately retains the functional research UI. A future visual shell should submit to `/api/activate`, animate only the pending state, render returned capability status, show the same `/api/state` Workspace, and call `/api/stand-down` on cancellation. An animation-complete callback must never create backend success.
+The default `/` entry is the Creation fingertip scene. The artwork crop, material
+transition and restrained wave are local Canvas rendering. There is no iframe,
+embedded mock workspace or second execution engine. The same document routes into
+the real workspace after `POST /api/activate` acknowledges the temporary capability.
+The animation waits for that acknowledgement; its own clock cannot create success.
+Providing a key does not dispatch work or validate it with a paid model call.
+
+Only Researcher and Reviewer are agents. Control, Harness and Memory in the visual
+network represent existing modules, not additional agents or fabricated running jobs.
+The scene suspends drawing in the workspace and in hidden tabs; reduced motion skips
+the flash and wave. Offline reading is available directly from the homepage.
+
+Cancel invalidates visual completion and waits for any pending activation response
+before sending Stand Down, so a delayed activation cannot follow cancellation and
+re-enable capability. Reload and reconnect use the actual runtime state; stopping
+retains research and removes the key. Input is cleared on submission and when leaving
+the homepage. Reconnecting from a workspace page returns to that page.
 
 ## Dependency acquisition
 
@@ -86,6 +102,5 @@ from overwriting a newer stop notice. Runtime generation checks isolate late mod
 responses, including provider-validation status. Interrupted or blocked tasks show
 reasons rather than offering an unsafe repeat action.
 
-The Creation animation remains a future visual shell; the current functional
-activation dialog and unified workspace are wired to real backend state. Historical
-mock workspaces and additional simulated agents are not imported.
+The Creation scene and the unified workspace share the same backend capability and
+Control Plane. Historical mock workspaces and additional simulated agents are not imported.

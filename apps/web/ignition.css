@@ -1,0 +1,313 @@
+#ignition {
+  position: relative;
+  min-height: 540px;
+  height: 100svh;
+  background: #080d14;
+  color: #e4eaf0;
+  overflow: hidden;
+  font:
+    13px/1.6 -apple-system,
+    BlinkMacSystemFont,
+    "PingFang SC",
+    sans-serif;
+}
+body:not(.ignition-mode) #ignition {
+  display: none;
+}
+.ignition-mode > header,
+.ignition-mode > .shell,
+.ignition-mode > .skip {
+  display: none;
+}
+#creation-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ignition-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 4vw;
+}
+.ignition-brand {
+  font-size: 23px;
+  letter-spacing: -0.7px;
+  font-weight: 550;
+  text-decoration: none;
+  color: #e4eaf0;
+}
+.ignition-top > span {
+  font-size: 10px;
+  color: #96a5b6;
+  margin-left: auto;
+}
+#ignition button,
+#ignition a {
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+#ignition button {
+  background: none;
+  border: 0;
+  color: #adbdcd;
+  font-size: 11px;
+}
+#ignition button:focus-visible,
+#ignition a:focus-visible,
+#ignition input:focus-visible {
+  outline: 2px solid #a1c5df;
+  outline-offset: 4px;
+}
+#motion {
+  padding: 6px 0 6px 20px;
+  border-left: 1px solid #364351 !important;
+  border-radius: 0;
+}
+.ignition-intro {
+  position: absolute;
+  top: 14%;
+  width: 100%;
+  text-align: center;
+  pointer-events: none;
+}
+.ignition-intro > p:first-child {
+  font-size: 11px;
+  color: #94a3b3;
+  letter-spacing: 2px;
+}
+.ignition-intro h1 {
+  font-size: clamp(34px, 4.5vw, 66px);
+  font-weight: 450;
+  letter-spacing: -2px;
+  line-height: 1.1;
+  margin: 14px 0;
+}
+.ignition-intro > p:last-child {
+  font-size: 13px;
+  color: #a2adba;
+  letter-spacing: 3px;
+}
+#ignition-entry {
+  position: absolute;
+  left: 50%;
+  top: 51%;
+  transform: translate(-50%, -32px);
+  width: 350px;
+  max-width: calc(100% - 40px);
+  text-align: center;
+}
+#ignition #activation {
+  padding: 10px;
+  background: #0c1420e8;
+  border: 1px solid #687e9077;
+  border-radius: 12px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 0 50px #080d1444;
+}
+#ignition #activation:focus-within {
+  border-color: #a6c0d3;
+  box-shadow: 0 0 45px #89b6d51a;
+}
+#ignition #activation label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+#ignition .input {
+  display: flex;
+  flex-direction: row;
+  margin: 0;
+  gap: 6px;
+}
+#ignition input {
+  border: 0;
+  background: transparent;
+  color: #e7eef7;
+  font-size: 12px;
+  padding: 12px 8px;
+  width: 100%;
+  min-width: 0;
+}
+#ignition input::placeholder {
+  color: #93a2b2;
+}
+#ignition #activation button {
+  background: #d9e5ee;
+  color: #172633;
+  border: 1px solid #f5f8fa44;
+  border-radius: 7px;
+  padding: 10px 14px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+#ignition #activation button:hover {
+  background: #f3f8fb;
+}
+#ignition button:disabled {
+  opacity: 0.4;
+}
+.ignition-note {
+  font-size: 10px;
+  color: #93a5b8;
+  margin: 12px 0;
+}
+#browse-memory {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 11px;
+  text-decoration: none;
+  color: #a9bbce;
+  padding: 6px;
+}
+#browse-memory span {
+  font-size: 9px;
+  margin-left: 10px;
+  color: #718ca5;
+}
+#ignition-error {
+  font-size: 12px;
+  color: #e2c494;
+  max-width: 340px;
+  margin: 8px auto;
+}
+#ignition-error:empty {
+  display: none;
+}
+#ignition-progress,
+#ignition-ready {
+  position: absolute;
+  top: 76%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  width: 540px;
+  max-width: calc(100% - 32px);
+}
+#ignition-progress h2,
+#ignition-ready h2 {
+  font-size: 20px;
+  font-weight: 450;
+  margin: 0 0 6px;
+}
+#ignition-progress p,
+#ignition-ready p {
+  font-size: 11px;
+  color: #99aec2;
+  margin: 6px 0;
+}
+#ignition-ready .button {
+  background: #dae5ee;
+  color: #172633;
+  margin: 8px 0;
+  padding: 8px 18px;
+}
+.ignition-bottom {
+  position: absolute;
+  bottom: 18px;
+  left: 4vw;
+  right: 4vw;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  color: #879aaa;
+  font-size: 9px;
+}
+.ignition-bottom p {
+  margin: 0;
+}
+#ignition[data-phase="attraction"] .ignition-intro,
+#ignition[data-phase="contact"] .ignition-intro,
+#ignition[data-phase="wave"] .ignition-intro {
+  opacity: 0.3;
+}
+@media (max-width: 620px) {
+  .ignition-top {
+    padding: 20px;
+    gap: 12px;
+  }
+  .ignition-top > span {
+    position: absolute;
+    top: 58px;
+    left: 20px;
+    font-size: 9px;
+  }
+  #motion {
+    margin-left: auto;
+  }
+  .ignition-intro {
+    top: 18%;
+  }
+  .ignition-intro h1 {
+    font-size: 38px;
+  }
+  #ignition-entry {
+    width: 280px;
+  }
+  .ignition-bottom {
+    left: 20px;
+    right: 20px;
+    bottom: 15px;
+    display: block;
+    font-size: 8px;
+  }
+  .ignition-bottom p {
+    margin-top: 5px;
+  }
+  #ignition-progress,
+  #ignition-ready {
+    top: 77%;
+  }
+  #ignition-progress h2,
+  #ignition-ready h2 {
+    font-size: 18px;
+  }
+}
+@media (max-height: 650px) and (min-width: 621px) {
+  #ignition {
+    min-height: 420px;
+  }
+  .ignition-top {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  .ignition-intro {
+    top: 13%;
+  }
+  .ignition-intro h1 {
+    font-size: 32px;
+    margin: 8px 0;
+  }
+  .ignition-intro > p:last-child {
+    display: none;
+  }
+  #ignition-entry {
+    top: 52%;
+  }
+  #ignition-progress,
+  #ignition-ready {
+    top: 73%;
+  }
+  #ignition-progress h2,
+  #ignition-ready h2 {
+    font-size: 17px;
+  }
+  .ignition-bottom {
+    bottom: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ignition * {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,43 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createIgnitionState } from "../../apps/web/ignition-state.js";
+test("ignition never completes before backend acknowledgement, even after a long wait", () => {
+  const life = createIgnitionState();
+  life.begin(0);
+  assert.equal(life.begin(1), false);
+  assert.equal(life.advance(100000), false);
+  assert.equal(life.state.phase, "silence");
+  assert.equal(life.acknowledge(100000), true);
+  assert.equal(life.advance(101500), false);
+  assert.equal(life.state.phase, "contact");
+  assert.equal(life.advance(104000), true);
+  assert.equal(life.state.phase, "online");
+  life.online(false);
+  life.begin(105000);
+  assert.equal(life.state.kind, "resume");
+});
+test("cancellation rejects late acknowledgements and cannot transition to online", () => {
+  const life = createIgnitionState();
+  life.begin(0);
+  life.cancel();
+  assert.equal(life.acknowledge(100), false);
+  assert.equal(life.advance(5000), false);
+  assert.equal(life.state.phase, "dormant");
+  life.begin(6000);
+  life.acknowledge(6000);
+  life.cancel();
+  life.advance(10000);
+  assert.equal(life.state.phase, "dormant");
+  assert.equal(life.state.ever, false);
+});
+test("reduced motion bypasses flash, while input energy survives dormant status polling", () => {
+  const life = createIgnitionState();
+  life.type(10);
+  life.online(false);
+  assert.equal(life.state.phase, "typing");
+  life.begin(0, true);
+  life.acknowledge(10);
+  life.advance(110);
+  assert.equal(life.state.phase, "settling");
+  assert.equal(life.advance(360), true);
+});

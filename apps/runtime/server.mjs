@@ -73,16 +73,22 @@ const server = createServer(async (req, res) => {
         "/": "index.html",
         "/app.js": "app.js",
         "/view-model.js": "view-model.js",
+        "/ignition-state.js": "ignition-state.js",
+        "/creation-scene.js": "creation-scene.js",
+        "/ignition.css": "ignition.css",
+        "/assets/creation-of-adam.jpg": "assets/creation-of-adam.jpg",
         "/styles.css": "styles.css",
       };
       if (files[req.url]) {
         res.setHeader(
           "Content-Type",
-          req.url.endsWith(".js")
-            ? "text/javascript"
-            : req.url.endsWith(".css")
-              ? "text/css"
-              : "text/html",
+          req.url.endsWith(".jpg")
+            ? "image/jpeg"
+            : req.url.endsWith(".js")
+              ? "text/javascript"
+              : req.url.endsWith(".css")
+                ? "text/css"
+                : "text/html",
         );
         return res.end(await readFile(join(web, files[req.url])));
       }

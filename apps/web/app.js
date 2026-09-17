@@ -1,4 +1,5 @@
 import { project, taskStates } from "./view-model.js";
+import { createScene } from "./creation-scene.js";
 const $ = (id) => document.getElementById(id);
 const esc = (value) =>
   String(value ?? "").replace(
@@ -15,6 +16,27 @@ let state,
   activating = false,
   requestVersion = 0,
   actionVersion = 0;
+let activationRequest = null,
+  transportAvailable = true,
+  afterIgnition = "#overview";
+const phaseText = {
+  dormant: "推理休眠 / 研究仍在",
+  typing: "意图正在汇聚",
+  silence: "接通临时能力",
+  attraction: "让两种世界靠近",
+  contact: "接触，成为起点",
+  wave: "协作结构正在点亮",
+  settling: "研究状态已连接",
+  resuming: "接回已有的研究",
+  online: "能力已就绪 / 研究由你开始",
+};
+const scene = createScene($("creation-scene"), (phase) => {
+  $("ignition").dataset.phase = phase;
+  $("ignition-phase").textContent = phaseText[phase] || phase;
+  $("ignition-stage").textContent = phaseText[phase] || phase;
+});
+$("motion").textContent = scene.reduced() ? "开启动效" : "关闭动效";
+$("motion").setAttribute("aria-pressed", String(scene.reduced()));
 const signatures = new Map();
 function html(id, value) {
   if (signatures.get(id) === value) return;
@@ -49,6 +71,14 @@ function render() {
   $("v2").disabled = locked || !p.canReviseFixture;
   $("create-f").disabled = locked || !p.canCreateF;
   $("key").disabled = locked || state.runtime.modelOnline;
+  $("ignition-entry").hidden =
+    activating || stopping || state.runtime.modelOnline;
+  $("ignition-progress").hidden = !activating && !stopping;
+  $("ignition-ready").hidden =
+    activating || stopping || !state.runtime.modelOnline;
+  $("cancel-ignition").disabled = stopping;
+  $("reconnect").hidden = state.runtime.modelOnline;
+  if (!activating && !stopping) scene.online(state.runtime.modelOnline);
   $("activation").querySelector("button").disabled =
     locked || state.runtime.modelOnline;
   $("stop").disabled =
@@ -130,6 +160,11 @@ async function load() {
   if (version !== requestVersion) return;
   state = next;
   memory = view;
+  if (!transportAvailable) {
+    $("ignition-error").textContent = "";
+    $("notice").textContent = "已重新连接本地运行时。";
+  }
+  transportAvailable = true;
   render();
 }
 const errors = {
@@ -146,7 +181,13 @@ async function act(name, body = {}) {
   const version = ++actionVersion;
   pending++;
   if (name === "stand-down") stopping = true;
-  if (name === "activate") activating = true;
+  if (name === "activate") {
+    activating = true;
+    scene.begin();
+    $("ignition-error").textContent = "";
+    $("ignition-detail").textContent = "等待后端确认临时能力";
+  }
+  if (name === "stand-down") scene.cancel();
   $("notice").textContent =
     name === "resume"
       ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
@@ -156,13 +197,22 @@ async function act(name, body = {}) {
   if (name === "activate") $("activation-status").textContent = "正在激活…";
   render();
   try {
+    // Serialize cancellation after any in-flight activation so a late HTTP acknowledgement cannot re-power the process.
+    if (name === "stand-down" && activationRequest)
+      await activationRequest.catch(() => {});
     const request = json("/api/" + name, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     body.key = "";
+    if (name === "activate") activationRequest = request;
     await request;
+    if (name === "activate" && version === actionVersion) {
+      $("ignition-detail").textContent =
+        "运行时已接收临时 Key · 尚未发起模型请求";
+      await scene.confirm();
+    }
     if (version === actionVersion) {
       $("notice").textContent =
         name === "activate"
@@ -174,7 +224,8 @@ async function act(name, body = {}) {
               : "状态已保存。";
       if (name === "activate") {
         $("power-panel").close();
-        location.hash = "#tasks";
+        activating = false;
+        location.hash = afterIgnition;
       }
     }
   } catch (e) {
@@ -182,15 +233,33 @@ async function act(name, body = {}) {
       $("notice").textContent =
         errors[e.message] || `操作未完成（${e.message}），请查看执行记录。`;
       $("activation-status").textContent = $("notice").textContent;
+      if (name === "activate") {
+        scene.cancel();
+        $("ignition-error").textContent =
+          "未能接通运行时。请检查本地服务后重新激活。";
+      }
     }
   } finally {
     pending--;
     if (name === "stand-down") stopping = false;
-    if (name === "activate") activating = false;
+    if (name === "activate") {
+      activating = false;
+      activationRequest = null;
+    }
     await load().catch(disconnected);
   }
 }
 function disconnected() {
+  transportAvailable = false;
+  if (activating) {
+    actionVersion++;
+    scene.cancel();
+  }
+  $("ignition-entry").hidden = false;
+  $("ignition-progress").hidden = true;
+  $("ignition-error").textContent =
+    "本地运行时连接中断。请启动平台后重试；已有研究仍保留在本地。";
+  $("ignition-ready").hidden = true;
   $("power").textContent = "运行时连接中断";
   $("notice").textContent =
     "无法连接本地运行时。当前内容是最后读取的状态；请重新启动平台。";
@@ -201,7 +270,12 @@ function disconnected() {
     });
 }
 function route() {
-  const target = location.hash.slice(1) || "overview";
+  const target = location.hash.slice(1) || "ignition";
+  const home = target === "ignition";
+  document.body.classList.toggle("ignition-mode", home);
+  scene.show(home);
+  if (!home && activating && !stopping) act("stand-down");
+  if (!home) $("key").value = "";
   const page = ["overview", "tasks", "memory", "activity"].includes(target)
     ? target
     : target === "content"
@@ -227,10 +301,42 @@ function route() {
     source.scrollIntoView({ block: "center" });
   }
 }
-$("power").onclick = () => $("power-panel").showModal();
+function openIgnition() {
+  afterIgnition = ["#overview", "#tasks", "#memory", "#activity"].includes(
+    location.hash,
+  )
+    ? location.hash
+    : "#overview";
+  location.hash = "#ignition";
+}
+$("power").onclick = () => {
+  if (state?.runtime.modelOnline) $("power-panel").showModal();
+  else openIgnition();
+};
+$("reconnect").onclick = () => {
+  $("power-panel").close();
+  openIgnition();
+};
+$("cancel-ignition").onclick = () => act("stand-down");
+$("motion").onclick = () => {
+  const reduced = scene.motion();
+  $("motion").textContent = reduced ? "开启动效" : "关闭动效";
+  $("motion").setAttribute("aria-pressed", String(reduced));
+};
+$("key").addEventListener("input", () =>
+  scene.type($("key").value.trim().length),
+);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && activating && !stopping) act("stand-down");
+});
 $("activation").onsubmit = (e) => {
   e.preventDefault();
   const key = $("key").value;
+  if (!key.trim()) {
+    $("ignition-error").textContent = "请输入非空 DeepSeek API Key。";
+    $("key").focus();
+    return;
+  }
   $("key").value = "";
   act("activate", { key });
 };
@@ -241,7 +347,7 @@ $("create-f").onclick = () => act("create-f");
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".resume");
   if (b) act("resume", { taskId: b.dataset.task });
-  if (e.target.closest("[data-power]")) $("power-panel").showModal();
+  if (e.target.closest("[data-power]")) openIgnition();
   const a = e.target.closest("[data-source]");
   if (a) {
     e.preventDefault();

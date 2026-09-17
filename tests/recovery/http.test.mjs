@@ -66,6 +66,19 @@ test("loopback API, real process exit/restart, ephemeral key, same snapshot and 
   try {
     await start();
     assert.equal((await fetch(base)).status, 200);
+    const page = await fetch(base).then((r) => r.text());
+    assert(page.includes('id="ignition"'));
+    assert(!page.includes("<iframe"));
+    for (const [path, type] of [
+      ["/assets/creation-of-adam.jpg", "image/jpeg"],
+      ["/creation-scene.js", "text/javascript"],
+      ["/ignition-state.js", "text/javascript"],
+      ["/ignition.css", "text/css"],
+    ]) {
+      const response = await fetch(base + path);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), type);
+    }
     assert.equal((await get()).runtime.powerState, "DORMANT");
     assert.equal(
       (
