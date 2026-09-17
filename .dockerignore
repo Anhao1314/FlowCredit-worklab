@@ -1,0 +1,16 @@
+**
+!package.json
+!package-lock.json
+!core.lock.json
+!scripts/
+!scripts/setup-core.mjs
+!apps/
+!apps/runtime/
+!apps/runtime/**
+!apps/web/
+!apps/web/**
+!packages/
+!packages/**
+!fixtures/
+!fixtures/northstar/
+!fixtures/northstar/**

@@ -1,6 +1,6 @@
 import { readAuthorized } from "../research-adapter/adapter.mjs";
 import { join } from "node:path";
-import { readdir, readFile, mkdir, writeFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile, stat } from "node:fs/promises";
 import {
   Context,
   Llm,
@@ -581,6 +581,7 @@ export class Runtime {
       );
   }
   async scan() {
+    const matches = [];
     let files = 0,
       hits = 0,
       patternHits = 0;
@@ -592,7 +593,11 @@ export class Runtime {
         else {
           files++;
           const text = (await readFile(p)).toString();
-          if (this.credentials.contains(text)) hits++;
+          if (this.credentials.contains(text)) {
+            hits++;
+            const info = await stat(p);
+            matches.push({ path: p, type: p.endsWith('-wal') ? 'SQLite WAL' : p.endsWith('-shm') ? 'SQLite SHM' : p.endsWith('.sqlite') ? 'SQLite' : p.endsWith('.json') ? 'JSON' : 'other', size: info.size, mtime: info.mtime.toISOString(), runtimeOwned: true, storageClass: 'runtime-directory' });
+          }
           if (/sk-[a-zA-Z0-9]{25,}/.test(text)) patternHits++;
         }
       }
@@ -602,6 +607,7 @@ export class Runtime {
       files,
       hits,
       patternHits,
+      matches,
       exactMatchAvailable: this.credentials.hasPower(),
       scope: "Runtime data directory only",
       harnessSessionPersistence: "not installed",

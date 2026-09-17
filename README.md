@@ -146,3 +146,42 @@ seeded public Northstar fixtures only. It never exports `.runtime/` or private d
 The Pages workflow tests and publishes this artifact on main updates. The regular
 `npm run dev` entry continues to run the real local backend and ephemeral credential
 flow. Pages does not replace or relax that runtime's security model.
+
+## Local edit/debug loop
+
+Run `npm run dev` and keep that terminal open, then visit
+`http://127.0.0.1:8799/`. Frontend HTML/CSS/JavaScript is served directly from
+`apps/web`; save and refresh the browser to see changes. Node watch mode restarts
+the backend when its imported source files change. No frontend build is needed.
+
+Backend restarts clear the temporary Key. Persistent tasks remain in `.runtime/`;
+an interrupted model attempt may require inspection rather than automatic retry.
+Use `npm start` when you want a server without automatic restarts. Stop either
+command with Control-C. The server binds only to the local loopback interface.
+
+## OrbStack deployment
+
+Deploy a clean committed checkout. The application image contains the source;
+there are no host source bind mounts and no watch-mode restarts. To edit locally,
+use the separate `npm run dev` workflow above, then commit and rebuild the image.
+
+```sh
+test -z "$(git status --porcelain)" || exit 1
+export FLOWCREDIT_SOURCE_REVISION="$(git rev-parse HEAD)"
+docker --context orbstack compose up --build -d
+```
+
+Open `http://127.0.0.1:8800/`. The OCI image revision label identifies the source
+commit. The dedicated `flowcredit-platform_runtime` volume retains synthetic
+Knowledge, Control state and artifacts across application recreation. Existing
+volumes are reused; host `.runtime/` data is never imported. No credential is
+passed in the image or Compose environment.
+
+Use `docker --context orbstack compose stop platform` to stop and `compose start
+platform` to restart, with the same source revision environment variable. Do not
+use `down -v`: it deletes persistent state. Host publication is loopback-only;
+container binding to `0.0.0.0` does not expose an additional host port.
+
+`POST /api/secret-check` reports match metadata, never matching content. A cleared
+credential means exact matching is unavailable, not proof that files are clean.
+A zero Canary result does not certify a different real credential or invocation.

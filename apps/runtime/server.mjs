@@ -14,6 +14,9 @@ const knowledge = join(root, "knowledge"),
   port = Number(process.env.FLOWCREDIT_PORT || 8799);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("INVALID_PORT");
+const bindHost = process.env.FLOWCREDIT_BIND_HOST || "127.0.0.1";
+if (!["127.0.0.1", "0.0.0.0"].includes(bindHost)) throw Error("INVALID_BIND_HOST");
+// Container binding is opt-in; browser Host/Origin checks remain loopback-only.
 const origin = `http://127.0.0.1:${port}`;
 seed(knowledge);
 const adapter = new ResearchAdapter(knowledge),
@@ -168,7 +171,7 @@ const server = createServer(async (req, res) => {
     });
   }
 });
-server.listen(port, "127.0.0.1", () =>
+server.listen(port, bindHost, () =>
   console.log(`FlowCredit ready ${origin} PID=${process.pid} model=OFF`),
 );
 let closing = false;

@@ -9,7 +9,7 @@
   "packageManager": "npm@11.11.0",
   "scripts": {
     "postinstall": "node scripts/setup-core.mjs",
-    "dev": "node apps/runtime/server.mjs",
+    "dev": "node --watch --watch-preserve-output apps/runtime/server.mjs",
     "start": "node apps/runtime/server.mjs",
     "test": "node --test tests/**/*.test.mjs",
     "check": "node scripts/check.mjs",

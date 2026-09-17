@@ -1,0 +1,32 @@
+name: flowcredit-platform
+services:
+  platform:
+    build:
+      context: .
+      args:
+        SOURCE_REVISION: ${FLOWCREDIT_SOURCE_REVISION:?Set FLOWCREDIT_SOURCE_REVISION to the clean Git commit}
+    init: true
+    restart: "no"
+    ports:
+      - "127.0.0.1:8800:8800"
+    environment:
+      FLOWCREDIT_PORT: "8800"
+      FLOWCREDIT_BIND_HOST: "0.0.0.0"
+      FLOWCREDIT_RUNTIME_DIR: /app/.runtime
+    volumes:
+      - runtime:/app/.runtime
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 90s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8800/api/state').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+volumes:
+  runtime:
