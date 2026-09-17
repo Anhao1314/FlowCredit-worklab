@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/Anhao1314/flowcredit-research",
+  "commit": "5f09036404401bb922ecdca9e423683c3693aafd",
+  "archive": "https://codeload.github.com/Anhao1314/flowcredit-research/tar.gz/5f09036404401bb922ecdca9e423683c3693aafd",
+  "sha256": "2d0efe05c9d7ae9004915c7cb43c4b89623159aef5b932a9d12a7bf56ea5de1a",
+  "directories": [
+    "research/memory",
+    "research/retrieval",
+    "research/admission",
+    "research/src",
+    "research/schemas"
+  ],
+  "files": [
+    "research/package.json",
+    "agent/package.json",
+    "agent/contracts/finch-assess-input.schema.json",
+    "LICENSE"
+  ]
+}
