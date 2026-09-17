@@ -99,3 +99,20 @@ can be enabled on the homepage and respects the operating-system preference.
 Artwork attribution: [local asset notes](apps/web/assets/ATTRIBUTION.md). Assets are
 served by the same loopback runtime; there is no CDN or embedded old demo. Use
 `npm run dev`, not `file://`, because this entry requires the actual platform backend.
+
+## Public GitHub Pages demo
+
+[Open the public demo](https://anhao1314.github.io/d/).
+
+Pages is a separate **synthetic, browser-only demonstration**, not the Node/Harness
+runtime. It shares the Creation scene and workspace presentation, but replaces the
+transport at build time with an explicit, bounded simulation. It has no key input,
+model calls, database connection or persistence; refresh/reset clears the session.
+A persistent banner identifies this mode. CSP blocks network connections and form
+submissions. Researcher and Reviewer outputs are preset, not model judgments.
+
+`npm run build:pages` generates `.pages/` from allowlisted web assets and freshly
+seeded public Northstar fixtures only. It never exports `.runtime/` or private data.
+The Pages workflow tests and publishes this artifact on main updates. The regular
+`npm run dev` entry continues to run the real local backend and ephemeral credential
+flow. Pages does not replace or relax that runtime's security model.

@@ -10,6 +10,7 @@ async function walk(dir) {
       e.name === "node_modules" ||
       e.name === ".git" ||
       e.name === ".deps" ||
+      e.name === ".pages" ||
       e.name.startsWith(".runtime") ||
       e.name.startsWith(".test-") ||
       e.name.startsWith(".negative-")
