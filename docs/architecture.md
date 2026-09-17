@@ -41,10 +41,11 @@ The adapter opens both synthetic Memory and Retrieval read-only, pins their read
 
 ## Runtime API
 
-All endpoints are local to the loopback host, reject incorrect Host/Origin, and use JSON for mutations.
+All endpoints bind to the loopback host and reject incorrect Host. Mutations additionally require the same Origin and JSON.
 
 | Endpoint | Behavior |
 | --- | --- |
+| `GET /api/memory` | Human read-only browsing of the current synthetic Claim and four allowlisted records; no task creation |
 | `GET /api/state` | Work, bindings, candidate artifacts and capability status; no credential |
 | `POST /api/activate` | Install `{key}` in RAM; no connectivity model call |
 | `POST /api/create-e` | Create S1/v1 and E; repeated creation refused |
@@ -84,7 +85,7 @@ Harness uses exact official npm versions; the full peer closure is pinned to pre
 
 The platform has one web entry and one runtime. Research overview, task collaboration,
 read-only memory and execution history share the same live Control Plane state.
-Activation is a modal capability control; providing a key does not dispatch work.
+Activation happens on the Creation homepage; a workspace dialog controls capability status and Stand Down. Providing a key does not dispatch work.
 Users explicitly start a bound task. Researcher output, Reviewer feedback, unresolved
 questions and the final candidate memo appear together, with citations opening the
 **task's fixed snapshot**, not the current memory revision.
@@ -104,3 +105,24 @@ reasons rather than offering an unsafe repeat action.
 
 The Creation scene and the unified workspace share the same backend capability and
 Control Plane. Historical mock workspaces and additional simulated agents are not imported.
+
+
+## Public Pages deployment is a separate execution mode
+
+The five-plane architecture above describes the local platform. GitHub Pages runs
+only the web presentation and a browser-memory simulator; it does not host Node,
+SQLite, Harness or the DeepSeek adapter. The build replaces the transport and
+activation handler in the generated artifact, removes credential input, and adds a
+persistent simulation label. The original local web/runtime sources retain the real
+activation path.
+
+`apps/pages/demo-runtime.js` supplies preset research/review results and bounded,
+cancelable state transitions. `scripts/build-pages.mjs` exports only allowlisted web
+assets and newly seeded synthetic snapshots into ignored `.pages/`. It never reads
+local runtime history. CSP blocks network connections and form submissions. Refresh
+or reset clears demo state; it does not provide hard-restart recovery.
+
+The Pages workflow tests and publishes that static artifact. The offline workflow
+checks the local platform using substituted model responses. Neither workflow calls
+DeepSeek. Historical live H0–H3 evidence is documented separately in
+[validated milestones](validated-milestones.md).

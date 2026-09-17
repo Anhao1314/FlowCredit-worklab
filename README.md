@@ -1,5 +1,35 @@
 # FlowCredit
 
+**当前阶段：H0–H3 本地 Alpha 平台 + GitHub Pages 公开交互演示。**
+
+FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Researcher / Reviewer 协作，交付有来源、有限制的候选备忘。任务执行状态可以保存和恢复；正式研究记录的决定权始终属于人。
+
+[体验公开演示](https://anhao1314.github.io/d/) · [功能、架构与当前边界](docs/current-status.md) · [技术架构](docs/architecture.md) · [安全模型](docs/security-model.md)
+
+## 先区分两个版本
+
+| | 本地平台 | GitHub Pages 公开演示 |
+| --- | --- | --- |
+| 首页与工作台 | 创造亚当激活首页、研究概览、任务、记忆、执行记录 | 相同的主要交互体验 |
+| Agent / 模型 | 真实 Harness，支持 DeepSeek API | 浏览器内预设模拟，不运行 Harness 或调用模型 |
+| 研究资料 | 真实 FlowCredit Core 管理的独立合成库 | 构建时生成的公开合成快照 |
+| 状态保存 | SQLite 保存任务、检查点与产物 | 仅当前页面内存；刷新或重置清空 |
+| Key | 仅运行进程内存；停止或退出清除 | 不接受真实 Key |
+| 使用方式 | 安装依赖后运行 `npm run dev` | 直接打开上面的公开链接 |
+
+## 已经可以做什么
+
+- 从已有观点创建固定版本的研究任务，锁定资料范围与截止时间。
+- 无需激活模型即可浏览观点、已接纳证据、未接纳候选材料和来源。
+- 由 Researcher 读取授权原文，再交给独立 Reviewer 复核结构化候选产物。
+- 在同一任务中查看候选发现、引用、限制、复核意见和未解决问题。
+- 停止执行、隔离迟到结果，并在本地进程重启后恢复已保存状态；受阻任务不盲目重跑。
+- 查看生命周期事件、工具读取与请求账本；本地合成基线有持久化的六次请求上限。
+
+**当前边界：** 仅本地单用户、Northstar 合成案例和固定 E / F 任务。尚未接入私人生产研究库、通用资料导入、任意任务配置、自动驻场调度、多用户权限或人工批准后正式写回。Reviewer 不通过时停止等待处理。任务完成和 Reviewer PASS 都不代表证据已接纳或观点已修订。
+
+下面是开发者启动与实现说明。
+
 FlowCredit is a persistent research swarm where models provide temporary inference power, agents execute work, and research memory retains authority.
 
 This is a research system, not an agent chat room. Work belongs to persistent Duties and Tasks; Researcher and Reviewer use independent DeepSeek Harness sessions. A version-bound, read-only FlowCredit snapshot supplies the evidence. An AI candidate or Reviewer PASS never admits evidence or revises a claim.
@@ -24,7 +54,7 @@ Open **http://127.0.0.1:8799**. The platform starts Dormant, initializes only a 
 2. Optionally use **测试库新增 v2**, an explicit synthetic fixture administration action. E stays on v1.
 3. Enter a DeepSeek API key in Activation. The key stays in runtime RAM; never put it in `.env`, a command, or a file. Activation creates a capability; the first inference validates the provider credential.
 4. Resume E. Researcher obtains text through a real Harness read tool, then a fresh Reviewer examines the candidate and cited excerpts. A PASS yields a candidate memo, not research approval.
-5. Create F explicitly bound to v2 and resume it. Stand Down clears the key and releases sessions. Control-C stops the server. Restart restores work, never the key.
+5. After E is ready, create synthetic v2 if you have not already done so, then create F explicitly bound to v2 and resume it. Stand Down clears the key and releases sessions. Control-C stops the server. Restart restores work, never the key.
 
 The synthetic baseline has a **persistent six-request cap**: each task normally uses two Researcher requests (including the tool continuation) and one Reviewer request. Repeated Resume of completed work costs no new request. Do not delete the ledger to bypass a budget. A failed/uncertain attempt may require manual inspection.
 
