@@ -6,6 +6,8 @@ FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Re
 
 [体验公开演示](https://anhao1314.github.io/d/) · [功能、架构与当前边界](docs/current-status.md) · [技术架构](docs/architecture.md) · [安全模型](docs/security-model.md)
 
+长期设计约束见 [目标架构原文](docs/ideal-architecture-reference.md) 与 [渐进演化决策](docs/executor-evolution.md)。目标架构不是当前能力清单。
+
 ## 先区分两个版本
 
 | | 本地平台 | GitHub Pages 公开演示 |
