@@ -5,15 +5,16 @@ import {
   Context,
   Llm,
   Session,
-  SessionId,
   Projection,
   Prompt,
   Tools,
   Agents,
   Loop,
   DeepSeek,
-  createUserMessage,
+  Subagents,
+  SpawnSubagent,
 } from "../harness-adapter/harness.mjs";
+import { HarnessSubagentExecutor } from "../harness-adapter/executor.mjs";
 import { EphemeralCredentials } from "../harness-adapter/credentials.mjs";
 import {
   hash,
@@ -31,7 +32,7 @@ export class Runtime {
     this.boot = uuid("boot");
     this.busy = false;
     this.generation = 0;
-    this.handle = null;
+    this.execution = null;
   }
   async init() {
     process.env.DSH_HOME = join(this.root, "data", "harness-home");
@@ -59,14 +60,21 @@ export class Runtime {
       retryPolicy: { mode: "normal", maxRetries: 0 },
     });
     await ctx.plugin(Loop, { agents: [] });
+    await ctx.plugin(Subagents);
+    await ctx.plugin(SpawnSubagent, { providerName: "spawn" });
+    this.executor = new HarnessSubagentExecutor(ctx, {
+      hasPower: () => this.credentials.hasPower(),
+      event: (kind, detail) => this.store.event(kind, detail),
+    });
     if (ctx.tools.schemas().length) throw Error("TOOLS_NOT_EMPTY");
     this.originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
+      const execution = this.execution;
       if (
         String(url) !== "https://api.deepseek.com/v1/chat/completions" ||
         options.method !== "POST" ||
         !this.credentials.hasPower() ||
-        !this.currentRun
+        !execution
       )
         throw Error("MODEL_CAPABILITY_OFF");
       const body = JSON.parse(options.body);
@@ -78,11 +86,13 @@ export class Runtime {
         this.credentials.contains(options.body)
       )
         throw Error("REQUEST_POLICY");
-      if (this.requestIds.length >= (this.currentRole === "Researcher" ? 2 : 1))
+      if (
+        execution.requestIds.length >= (execution.role === "Researcher" ? 2 : 1)
+      )
         throw Error("RUN_REQUEST_LIMIT");
       const requestGeneration = this.generation;
-      const id = this.store.reserve(this.currentRun);
-      this.requestIds.push(id);
+      const id = this.store.reserve(execution.run);
+      execution.requestIds.push(id);
       try {
         const response = await this.originalFetch(url, {
           ...options,
@@ -156,25 +166,12 @@ export class Runtime {
       },
     };
   }
-  async release() {
-    if (this.handle) {
-      const id = this.handle.agent.id;
-      await this.handle.dispose();
-      this.handle = null;
-      this.store.event("SESSION_RELEASED", {
-        session: id,
-        agentAbsent: !this.ctx.agents.get(id),
-        sessionAbsent: !this.ctx.sessions.get(id),
-      });
-    }
-  }
   async standDown() {
     this.generation++;
     this.credentials.clear();
     this.providerValidated = false;
-    if (this.handle) this.handle.agent.cancel({ kind: "user" });
+    this.executor.cancel();
     if (this.pending) await this.pending.catch(() => {});
-    await this.release();
     this.store.dutyUpdate({ status: "PAUSED" });
     this.store.event("STAND_DOWN", {
       boot: this.boot,
@@ -184,175 +181,87 @@ export class Runtime {
     return this.status();
   }
   async invoke(task, role, input, instructions) {
-    await this.release();
     if (!this.credentials.hasPower()) throw Error("MODEL_CAPABILITY_OFF");
     if (this.store.count() >= 6) throw Error("MODEL_BUDGET_EXHAUSTED");
+    if (this.execution) throw Error("EXECUTOR_BUSY");
     const run = uuid("run"),
-      session = uuid(`fc-${role}`),
       generation = this.generation;
-    this.currentRun = run;
-    this.currentRole = role;
-    this.requestIds = [];
+    const execution = { run, role, requestIds: [] };
+    this.execution = execution;
     this.toolReads = [];
-    this.installTool(task, role);
-    const handle = (this.handle = await this.ctx.agents.create({
-      sessionId: SessionId(session),
-      agentOptions: {
-        provider: "deepseek-official",
-        model: "deepseek-v4-flash",
-        maxTokens: 2600,
-      },
-    }));
-    const fresh = handle.agent.session.snapshotEvents().length === 0;
-    this.store.db.prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)").run(
-      run,
-      task.id,
-      role,
-      session,
-      this.boot,
-      "RUNNING",
-      JSON.stringify({
-        freshSession: fresh,
-        inputDigest: hash(input),
-        researchArtifactId: input.researchArtifact?.id ?? null,
-        sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
-          (r) => r.id,
-        ),
-      }),
-    );
+    this.store.db
+      .prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)")
+      .run(
+        run,
+        task.id,
+        role,
+        null,
+        this.boot,
+        "RUNNING",
+        JSON.stringify({ executor: "harness-spawn", inputDigest: hash(input) }),
+      );
     this.store.state(
       task.id,
       role === "Researcher" ? "RESEARCH_RUNNING" : "REVIEW_RUNNING",
       { ...task.checkpoint, nextAction: role },
     );
-    const start = Date.now();
-    handle.agent.followup(
-      createUserMessage({
-        content: [
-          {
-            type: "text",
-            text: instructions + "\nINPUT_JSON\n" + JSON.stringify(input),
-          },
-        ],
-        source: { kind: "user" },
-      }),
-    );
-    const timer = setTimeout(
-      () => handle.agent.cancel({ kind: "user" }),
-      65000,
-    );
+    let summary;
     try {
-      await handle.agent.whenIdle();
-    } finally {
-      clearTimeout(timer);
-    }
-    const events = handle.agent.session.snapshotEvents(),
-      end = events.findLast((e) => e.type === "turn/end"),
-      response = events.findLast((e) => e.type === "assistant/message");
-    const summary = {
-      toolReads: this.toolReads,
-      initialPromptDigest: hash(input),
-      freshSession: fresh,
-      inputDigest: hash(input),
-      researchArtifactId: input.researchArtifact?.id ?? null,
-      sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
-        (r) => r.id,
-      ),
-      completion: end?.data.reason?.kind ?? null,
-      usage: response?.data.usage ?? null,
-      eventTypes: events.map((e) => e.type),
-      wallClockMs: Date.now() - start,
-    };
-    for (const id of this.requestIds)
-      this.store.budgetUpdate(
-        id,
-        end?.data.reason?.kind === "completed"
-          ? "COMPLETED"
-          : "FAILED_OR_CANCELED",
-        { run, ...summary },
-      );
-    this.currentRun = null;
-    this.store.db
-      .prepare("UPDATE runs SET summary=? WHERE id=?")
-      .run(JSON.stringify(summary), run);
-    if (
-      generation !== this.generation ||
-      !response ||
-      end?.data.reason?.kind !== "completed"
-    ) {
+      const result = await this.executor.execute({
+        task,
+        role,
+        input,
+        instructions,
+        readRecords: (args) =>
+          readAuthorized(
+            this.store.bound(task.id),
+            this.store.check(task.id),
+            args,
+          ),
+        onStarted: (session, lineage) => {
+          this.store.db
+            .prepare("UPDATE runs SET session=?,summary=? WHERE id=?")
+            .run(session, JSON.stringify(lineage), run);
+        },
+      });
+      this.toolReads = result.toolReads;
+      summary = {
+        ...result.receipt,
+        toolReads: result.toolReads,
+        initialPromptDigest: hash(input),
+        researchArtifactId: input.researchArtifact?.id ?? null,
+        sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
+          (r) => r.id,
+        ),
+        completion: result.receipt.stopReason,
+      };
+      if (generation !== this.generation) throw Error("CANCELED");
+      if (result.receipt.stopReason !== "completed")
+        throw Error("TURN_NOT_COMPLETED");
+      if (this.credentials.contains(result.raw))
+        throw Error("SECRET_IN_OUTPUT");
+      return { raw: result.raw, run };
+    } catch (error) {
       this.store.db
         .prepare("UPDATE runs SET state='FAILED' WHERE id=?")
         .run(run);
-      throw Error(
-        generation !== this.generation ? "CANCELED" : "TURN_NOT_COMPLETED",
-      );
-    }
-    const raw = response.data.message.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    if (this.credentials.contains(raw)) throw Error("SECRET_IN_OUTPUT");
-    return { raw, run };
-  }
-  installTool(task, role) {
-    if (this.unregisterRead) {
-      this.unregisterRead();
-      this.unregisterRead = null;
-    }
-    if (role !== "Researcher") return;
-    this.unregisterRead = this.ctx.tools.register({
-      name: "get_authorized_records",
-      description:
-        "Read the records permitted by this task. Call once with all authorized recordIds. Snapshot identity is fixed by the runtime; no other snapshot or write operation is allowed.",
-      parameters: {
-        type: "object",
-        properties: {
-          recordIds: {
-            type: "array",
-            items: { type: "string" },
-            minItems: 1,
-            maxItems: 4,
-          },
-        },
-        required: ["recordIds"],
-        additionalProperties: false,
-      },
-      output: {
-        schema: {
-          type: "object",
-          properties: { records: { type: "array", items: { type: "object" } } },
-          required: ["records"],
-          additionalProperties: false,
-        },
-        render: (_args, value) => [
-          { type: "text", text: JSON.stringify(value) },
-        ],
-      },
-      execute: async (args, exec) => {
-        if (
-          exec.signal.aborted ||
-          !this.credentials.hasPower() ||
-          exec.agent?.id !== this.handle?.agent.id ||
-          this.currentRole !== "Researcher"
-        )
-          throw Error("FORBIDDEN");
-        if (this.toolReads.length) throw Error("READ_BUDGET_EXHAUSTED");
-        const records = readAuthorized(
-          this.store.bound(task.id),
-          this.store.check(task.id),
-          args,
+      if (generation !== this.generation) throw Error("CANCELED");
+      throw error;
+    } finally {
+      const completed =
+        generation === this.generation && summary?.completion === "completed";
+      for (const id of execution.requestIds)
+        this.store.budgetUpdate(
+          id,
+          completed ? "COMPLETED" : "FAILED_OR_CANCELED",
+          { run, ...summary },
         );
-        this.toolReads.push({
-          taskId: task.id,
-          snapshotId: task.context.snapshotId,
-          recordIds: records.map((r) => r.id),
-          callId: exec.callId,
-          sessionId: exec.agent.id,
-        });
-        this.store.event("HARNESS_RECORDS_READ", this.toolReads.at(-1));
-        return { records };
-      },
-    });
+      if (summary)
+        this.store.db
+          .prepare("UPDATE runs SET summary=? WHERE id=?")
+          .run(JSON.stringify(summary), run);
+      this.execution = null;
+    }
   }
   async research(id) {
     const t = this.store.check(id),
@@ -565,7 +474,7 @@ export class Runtime {
         throw e;
       } finally {
         this.busy = false;
-        this.currentRun = null;
+        this.execution = null;
       }
     })();
     await this.pending;
@@ -596,7 +505,22 @@ export class Runtime {
           if (this.credentials.contains(text)) {
             hits++;
             const info = await stat(p);
-            matches.push({ path: p, type: p.endsWith('-wal') ? 'SQLite WAL' : p.endsWith('-shm') ? 'SQLite SHM' : p.endsWith('.sqlite') ? 'SQLite' : p.endsWith('.json') ? 'JSON' : 'other', size: info.size, mtime: info.mtime.toISOString(), runtimeOwned: true, storageClass: 'runtime-directory' });
+            matches.push({
+              path: p,
+              type: p.endsWith("-wal")
+                ? "SQLite WAL"
+                : p.endsWith("-shm")
+                  ? "SQLite SHM"
+                  : p.endsWith(".sqlite")
+                    ? "SQLite"
+                    : p.endsWith(".json")
+                      ? "JSON"
+                      : "other",
+              size: info.size,
+              mtime: info.mtime.toISOString(),
+              runtimeOwned: true,
+              storageClass: "runtime-directory",
+            });
           }
           if (/sk-[a-zA-Z0-9]{25,}/.test(text)) patternHits++;
         }

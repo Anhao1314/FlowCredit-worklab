@@ -51,9 +51,11 @@ flowchart TD
     Power --> Reviewer
 ```
 
-只有 Researcher 和 Reviewer 是 Agent。协调由程序负责；首页中的 Control、Harness、Memory 表示模块，不是额外的模型角色。两个 Agent 通过产物与引用协作，不广播全部聊天历史，也不通过投票决定研究真相。
+只有 Researcher 和 Reviewer 执行模型推理。协调由程序负责：每一步创建不调用模型的父会话，通过 Harness 原生 spawn 委派独立子代理，并在结束后释放父子会话；首页中的 Control、Harness、Memory 表示模块，不是额外的模型角色。两个 Agent 通过产物与引用协作，不广播全部聊天历史，也不通过投票决定研究真相。
 
 执行状态与研究权威分别保存：**任务完成 ≠ 研究接纳；Reviewer PASS ≠ 人工批准；模型会话 ≠ 长期研究记忆。** 当前没有从候选备忘到正式人工写回的产品流程。
+
+原生委派的实现、验证和边界见 [Harness 协作迁移](harness-collaboration.md)。
 
 ## 验证与发布
 

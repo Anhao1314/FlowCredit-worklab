@@ -130,6 +130,8 @@ function render() {
     CAPABILITY_ACTIVATED: "临时能力已激活",
     TASK_BOUND: "任务范围已固定",
     TASK_STATE: "任务状态变化",
+    HARNESS_DELEGATION_STARTED: "独立研究步骤已委派",
+    HARNESS_DELEGATION_SETTLED: "委派执行已结束，结果仍需校验",
     HARNESS_RECORDS_READ: "已读取授权原文",
     SESSION_RELEASED: "独立会话已释放",
     STAND_DOWN: "协作已停止，Key 已清除",

@@ -8,3 +8,5 @@ export { default as Tools } from "@deepseek-ai/dsh-tools";
 export { default as Agents } from "@deepseek-ai/dsh-agent";
 export { default as Loop } from "@deepseek-ai/dsh-agent-loop";
 export * as DeepSeek from "@deepseek-ai/dsh-llm-deepseek";
+export { default as Subagents } from "@deepseek-ai/dsh-subagent";
+export * as SpawnSubagent from "@deepseek-ai/dsh-subagent-spawn-in-process";

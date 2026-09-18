@@ -73,6 +73,11 @@ test("actual FlowCredit services, read-only adapter, revision pinning, Harness t
       assert(!opts.body.includes("sqlite"));
       assert(!opts.body.includes(manifest.records["R-X"].recordId));
       if (input.researchArtifact) {
+        assert.equal(
+          body.tools?.length ?? 0,
+          0,
+          "Reviewer has no inherited read or delegation tools",
+        );
         return sse({
           choices: [
             {
@@ -150,6 +155,38 @@ test("actual FlowCredit services, read-only adapter, revision pinning, Harness t
     await r.execute("E");
     assert.equal(s.task("E").state, "MEMO_READY");
     assert.equal(calls, 3);
+    for (const run of s.snapshot().runs) {
+      assert.equal(run.summary.executor, "harness-spawn");
+      assert.equal(run.summary.provider, "spawn");
+      assert.equal(run.summary.childSessionId, run.session);
+      assert.notEqual(run.summary.parentSessionId, run.session);
+      assert.equal(run.summary.parentModelRequests, 0);
+      assert.equal(run.summary.freshSession, true);
+      assert.equal(run.summary.inheritedConversation, false);
+      assert.equal(run.summary.contextDigest, s.task("E").digest);
+      assert.equal(run.summary.stopReason, "completed");
+      assert.equal(run.summary.modelRoute.provider, "deepseek-official");
+      assert(run.summary.eventTypes.includes("subagent/descriptor"));
+    }
+    assert.equal(
+      r.status().runtime.liveSessions,
+      0,
+      "both children and coordinators released before task completion",
+    );
+    assert.equal(
+      r.ctx.tools.schemas().length,
+      0,
+      "run-bound tools removed after delegation",
+    );
+    assert.equal(
+      s.snapshot().events.filter((e) => e.kind === "HARNESS_DELEGATION_STARTED")
+        .length,
+      2,
+    );
+    assert.equal(
+      s.snapshot().events.filter((e) => e.kind === "SESSION_RELEASED").length,
+      4,
+    );
     assert(s.snapshot().runs[0].summary.eventTypes.includes("tool/result"));
     assert.equal(s.snapshot().runs[0].summary.toolReads.length, 1);
     await r.execute("E");
@@ -266,6 +303,105 @@ test("stand down isolates a late model response and preserves the stopped reason
     assert.equal(runtime.status().runtime.providerValidated, false);
     assert.equal(runtime.status().runtime.liveSessions, 0);
     assert.equal(store.count(), 1);
+    assert.equal(store.snapshot().runs[0].state, "FAILED");
+    assert.equal(store.snapshot().runs[0].summary.stopReason, "aborted");
+    assert.equal(runtime.ctx.tools.schemas().length, 0);
+    assert.equal(runtime.executor.active, null);
+  } finally {
+    if (runtime) await runtime.close();
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("failed child transport consumes one reservation and releases the entire delegation", async () => {
+  const dir = mkdtempSync(join(root, ".test-delegation-failure-"));
+  const original = globalThis.fetch;
+  let adapter,
+    store,
+    runtime,
+    calls = 0;
+  try {
+    seed(join(dir, "knowledge"));
+    adapter = new ResearchAdapter(join(dir, "knowledge"));
+    store = new Store(join(dir, "control"));
+    store.createBound(adapter.snapshot("E", 1, ["R-03"]));
+    globalThis.fetch = async () => {
+      calls++;
+      throw Error("synthetic transport failure");
+    };
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    runtime.activate("offline-failure-sentinel");
+    await assert.rejects(runtime.execute("E"), /TURN_NOT_COMPLETED/);
+    assert.equal(calls, 1);
+    assert.equal(store.count(), 1);
+    assert.equal(store.snapshot().budget[0].state, "FAILED_OR_CANCELED");
+    assert.equal(store.snapshot().runs[0].state, "FAILED");
+    assert.equal(store.snapshot().runs[0].summary.stopReason, "error");
+    assert.equal(store.snapshot().artifacts.length, 0);
+    assert.equal(store.task("E").state, "NEEDS_ATTENTION");
+    assert.equal(runtime.status().runtime.liveSessions, 0);
+    assert.equal(runtime.ctx.tools.schemas().length, 0);
+    await assert.rejects(runtime.execute("E"), /TASK_NOT_RESUMABLE/);
+    assert.equal(calls, 1, "failed work must not be silently retried");
+  } finally {
+    if (runtime) await runtime.close();
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("stand down during child startup releases the coordinator without dispatching a request", async () => {
+  const dir = mkdtempSync(join(root, ".test-startup-cancel-"));
+  const original = globalThis.fetch;
+  let adapter,
+    store,
+    runtime,
+    calls = 0;
+  try {
+    seed(join(dir, "knowledge"));
+    adapter = new ResearchAdapter(join(dir, "knowledge"));
+    store = new Store(join(dir, "control"));
+    store.createBound(adapter.snapshot("E", 1, ["R-03"]));
+    globalThis.fetch = async () => {
+      calls++;
+      throw Error("unexpected request");
+    };
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    const start = runtime.ctx.subagents.start.bind(runtime.ctx.subagents);
+    let arrive, release;
+    const arrived = new Promise((resolve) => {
+      arrive = resolve;
+    });
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    runtime.ctx.subagents.start = async (...args) => {
+      arrive();
+      await gate;
+      return start(...args);
+    };
+    runtime.activate("offline-startup-sentinel");
+    const execution = runtime.execute("E");
+    const rejected = assert.rejects(execution, /CANCELED/);
+    await arrived;
+    const stopping = runtime.standDown();
+    release();
+    await stopping;
+    await rejected;
+    assert.equal(calls, 0);
+    assert.equal(store.count(), 0);
+    assert.equal(runtime.status().runtime.liveSessions, 0);
+    assert.equal(runtime.ctx.tools.schemas().length, 0);
+    assert.equal(runtime.executor.active, null);
+    assert.equal(store.task("E").checkpoint.reason, "CANCELED");
+    assert.equal(store.snapshot().artifacts.length, 0);
   } finally {
     if (runtime) await runtime.close();
     if (store) store.close();

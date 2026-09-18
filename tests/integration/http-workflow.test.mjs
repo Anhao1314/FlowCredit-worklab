@@ -85,6 +85,17 @@ test("complete HTTP workspace: read offline, bind, activate, research, review, m
     state = await post("resume", { taskId: "E" });
     assert.equal(state.tasks[0].state, "MEMO_READY");
     assert.equal(state.budget.length, 3);
+    assert.equal(state.runtime.liveSessions, 0);
+    const delegationReceipts = state.runs.map((r) => r.summary);
+    assert(
+      delegationReceipts.every(
+        (r) => r.executor === "harness-spawn" && r.parentModelRequests === 0,
+      ),
+    );
+    assert.equal(
+      new Set(delegationReceipts.map((r) => r.parentSessionId)).size,
+      2,
+    );
     assert(!project(state).tasks[0].canResume);
     assert.equal(new Set(state.runs.map((r) => r.session)).size, 2);
     assert.deepEqual(
@@ -117,6 +128,11 @@ test("complete HTTP workspace: read offline, bind, activate, research, review, m
     const restored = await get("/api/state");
     assert.equal(restored.runtime.modelOnline, false);
     assert.deepEqual(restored.artifacts, state.artifacts);
+    assert.deepEqual(
+      restored.runs,
+      state.runs,
+      "delegation receipts survive a hard runtime restart",
+    );
     assert.deepEqual(restored.snapshots, state.snapshots);
     assert.equal(restored.budget.length, 6);
     assert.equal(project(restored).readyMemos.length, 2);

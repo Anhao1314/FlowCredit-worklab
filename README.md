@@ -32,7 +32,7 @@ FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Re
 
 FlowCredit is a persistent research swarm where models provide temporary inference power, agents execute work, and research memory retains authority.
 
-This is a research system, not an agent chat room. Work belongs to persistent Duties and Tasks; Researcher and Reviewer use independent DeepSeek Harness sessions. A version-bound, read-only FlowCredit snapshot supplies the evidence. An AI candidate or Reviewer PASS never admits evidence or revises a claim.
+This is a research system, not an agent chat room. Work belongs to persistent Duties and Tasks; Researcher and Reviewer run as fresh children of non-inferencing coordinator sessions through the official DeepSeek Harness `spawn` provider. A version-bound, read-only FlowCredit snapshot supplies the evidence. An AI candidate or Reviewer PASS never admits evidence or revises a claim.
 
 **Current locally validated baseline: H0–H3.** P0 assembles that baseline into this repository. Event-driven resident loops and Human Apply are roadmap items, not implemented capabilities.
 
@@ -64,7 +64,7 @@ The synthetic baseline has a **persistent six-request cap**: each task normally 
 | --- | --- |
 | Experience | `apps/web`: Activation, status, source links, minimal Workspace |
 | Control | `packages/control-plane`: Duty, Task, runs, checkpoints, artifacts, request ledger, recovery |
-| Execution | `packages/harness-adapter`: official DeepSeek Harness packages and ephemeral credentials |
+| Execution | `packages/harness-adapter`: official Harness subagent delegation, lifecycle receipts and ephemeral credentials |
 | Knowledge | `packages/research-adapter`: version-bound reads through the actual FlowCredit domain services |
 | Model | Official Harness DeepSeek adapter; only the DeepSeek completions endpoint is allowed |
 
@@ -88,7 +88,7 @@ npm run test:live    # instructions only; no live call by default
 
 All mutable data stays in ignored `.runtime/`: synthetic Knowledge SQLite, Control SQLite, candidate exports and non-secret comparison reports. Non-secret configuration: `FLOWCREDIT_PORT`, `FLOWCREDIT_RUNTIME_DIR`. `.env.example` is explanatory; the app does not load `.env` files. To inspect a completed run, keep its runtime directory rather than regenerate it.
 
-See [architecture](docs/architecture.md), [security model](docs/security-model.md), [source inventory](docs/source-inventory.md), and [validated milestones](docs/validated-milestones.md).
+See [native Harness collaboration](docs/harness-collaboration.md), [architecture](docs/architecture.md), [security model](docs/security-model.md), [source inventory](docs/source-inventory.md), and [validated milestones](docs/validated-milestones.md).
 
 Limitations: local single-user operation; synthetic Knowledge store rather than private production research; model review is fallible and incomplete/interrupted work is not automatically retried. There is no scheduler, event inbox, Human Apply, or automatic authoritative write.
 

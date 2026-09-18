@@ -18,7 +18,7 @@ flowchart TD
   Harness --> Model[DeepSeek inference]
 ```
 
-The coordinator is programmatic. Only Researcher and Reviewer are instantiated; no planner model, router agent, monitor agent, or chat transcript bus is present. Each invocation has a fresh Session. Artifacts are the exchange boundary.
+The coordinator is programmatic. Each role invocation creates an ephemeral parent Agent handle that receives no model task, then delegates through the official Harness `spawn` provider. Only Researcher and Reviewer perform inference. Each child has a fresh Session with no inherited conversation; artifacts are the exchange boundary. Child and parent are disposed before returning the result. See [native collaboration](harness-collaboration.md) for lifecycle receipts and migration limits.
 
 ## Two state systems
 
@@ -66,8 +66,9 @@ the real workspace after `POST /api/activate` acknowledges the temporary capabil
 The animation waits for that acknowledgement; its own clock cannot create success.
 Providing a key does not dispatch work or validate it with a paid model call.
 
-Only Researcher and Reviewer are agents. Control, Harness and Memory in the visual
-network represent existing modules, not additional agents or fabricated running jobs.
+Only Researcher and Reviewer perform inference. Internal parent handles own delegation
+lifecycles without reasoning. Control, Harness and Memory in the visual network
+represent existing modules, not additional model roles or fabricated running jobs.
 The scene suspends drawing in the workspace and in hidden tabs; reduced motion skips
 the flash and wave. Offline reading is available directly from the homepage.
 
