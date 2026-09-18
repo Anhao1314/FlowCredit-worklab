@@ -1,12 +1,14 @@
 # FlowCredit
 
-**当前阶段：H0–H3 本地 Alpha 平台 + GitHub Pages 公开交互演示。**
+**当前阶段：0.2 本地单用户平台，支持 Harness 原生执行与 Claude Code 独立复核；另有 GitHub Pages 模拟演示。**
 
 FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Researcher / Reviewer 协作，交付有来源、有限制的候选备忘。任务执行状态可以保存和恢复；正式研究记录的决定权始终属于人。
 
 [体验公开演示](https://anhao1314.github.io/d/) · [功能、架构与当前边界](docs/current-status.md) · [技术架构](docs/architecture.md) · [安全模型](docs/security-model.md)
 
 长期设计约束见 [目标架构原文](docs/ideal-architecture-reference.md) 与 [渐进演化决策](docs/executor-evolution.md)。目标架构不是当前能力清单。
+
+本地完整使用流程、启动／停止和能力边界见 [本地平台交付说明](docs/local-platform.md)。安装后运行 `npm run local:start`，打开 http://127.0.0.1:8893/ 。
 
 ## 先区分两个版本
 
@@ -23,7 +25,8 @@ FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Re
 
 - 从已有观点创建固定版本的研究任务，锁定资料范围与截止时间。
 - 无需激活模型即可浏览观点、已接纳证据、未接纳候选材料和来源。
-- 由 Researcher 读取授权原文，再交给独立 Reviewer 复核结构化候选产物。
+- 由 Harness Researcher 读取授权原文，再交给 Harness 或 Claude Code Reviewer 复核结构化候选产物。
+- 对同一产物显式发起对照复核，保留原备忘；记录处理意见，不自动写回研究记忆。
 - 在同一任务中查看候选发现、引用、限制、复核意见和未解决问题。
 - 停止执行、隔离迟到结果，并在本地进程重启后恢复已保存状态；受阻任务不盲目重跑。
 - 查看生命周期事件、工具读取与请求账本；本地合成基线有持久化的六次请求上限。

@@ -15,26 +15,27 @@ export class Store {
  CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, task TEXT, role TEXT, session TEXT, boot TEXT, state TEXT, summary TEXT);
  CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task TEXT, producer TEXT, type TEXT, created TEXT, content TEXT, digest TEXT);
  CREATE TABLE IF NOT EXISTS budget(id INTEGER PRIMARY KEY, run TEXT, state TEXT, detail TEXT);
+ CREATE TABLE IF NOT EXISTS task_policies(task TEXT PRIMARY KEY, reviewer TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS delegations(id INTEGER PRIMARY KEY, run TEXT, provider TEXT, state TEXT, detail TEXT);
+ CREATE TABLE IF NOT EXISTS human_reviews(id TEXT PRIMARY KEY, task TEXT, memo TEXT, decision TEXT, note TEXT, created TEXT);
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created TEXT, kind TEXT, detail TEXT);
 
  CREATE TRIGGER IF NOT EXISTS immutable_context BEFORE UPDATE OF context,digest ON tasks BEGIN SELECT RAISE(ABORT,'CONTEXT_FROZEN'); END;`);
     if (!this.db.prepare("SELECT id FROM duty").get())
-      this.db
-        .prepare("INSERT INTO duty VALUES(?,?)")
-        .run(
-          "northstar",
-          JSON.stringify({
-            id: "northstar",
-            name: "Northstar Continuous Research",
-            subject: "Northstar Compute",
-            responsibility:
-              "围绕客户集中度处理授权合成资料，交付候选研究，等待人工判断。",
-            status: "DORMANT",
-            createdAt: now(),
-            currentTask: null,
-            lastCheckpoint: null,
-          }),
-        );
+      this.db.prepare("INSERT INTO duty VALUES(?,?)").run(
+        "northstar",
+        JSON.stringify({
+          id: "northstar",
+          name: "Northstar Continuous Research",
+          subject: "Northstar Compute",
+          responsibility:
+            "围绕客户集中度处理授权合成资料，交付候选研究，等待人工判断。",
+          status: "DORMANT",
+          createdAt: now(),
+          currentTask: null,
+          lastCheckpoint: null,
+        }),
+      );
   }
   tx(fn) {
     if (this.inTransaction) return fn();
@@ -102,19 +103,17 @@ export class Store {
       this.db
         .prepare("INSERT INTO snapshots VALUES(?,?,?)")
         .run(snapshot.snapshotId, snapshot.taskId, JSON.stringify(snapshot));
-      this.db
-        .prepare("INSERT INTO tasks VALUES(?,?,?,?,?)")
-        .run(
-          snapshot.taskId,
-          JSON.stringify(context),
-          hash(context),
-          "RESEARCH_PENDING",
-          JSON.stringify({
-            lastCompleted: null,
-            nextAction: "Researcher",
-            unresolvedIssues: [],
-          }),
-        );
+      this.db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?)").run(
+        snapshot.taskId,
+        JSON.stringify(context),
+        hash(context),
+        "RESEARCH_PENDING",
+        JSON.stringify({
+          lastCompleted: null,
+          nextAction: "Researcher",
+          unresolvedIssues: [],
+        }),
+      );
       this.dutyUpdate({
         currentTask: snapshot.taskId,
         lastCheckpoint: "RESEARCH_PENDING",
@@ -217,7 +216,94 @@ export class Store {
         });
       }
     }
+    this.db
+      .prepare("UPDATE runs SET state='INTERRUPTED' WHERE state='RUNNING'")
+      .run();
+    this.db
+      .prepare(
+        "UPDATE delegations SET state='INTERRUPTED_COST_UNKNOWN' WHERE state='RESERVED'",
+      )
+      .run();
     this.dutyUpdate({ status: "PAUSED" });
+  }
+  reviewer(id) {
+    return (
+      this.db.prepare("SELECT reviewer FROM task_policies WHERE task=?").get(id)
+        ?.reviewer ?? "native-harness"
+    );
+  }
+  setReviewer(id, reviewer) {
+    if (!["native-harness", "claude-code"].includes(reviewer))
+      throw Error("PROVIDER_ROLE_UNSUPPORTED");
+    const t = this.check(id);
+    if (
+      !["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state) ||
+      this.db
+        .prepare("SELECT id FROM runs WHERE task=? AND role='Reviewer'")
+        .get(id)
+    )
+      throw Error("POLICY_FROZEN");
+    this.db
+      .prepare(
+        "INSERT INTO task_policies VALUES(?,?) ON CONFLICT(task) DO UPDATE SET reviewer=excluded.reviewer",
+      )
+      .run(id, reviewer);
+    this.event("REVIEWER_SELECTED", { task: id, provider: reviewer });
+  }
+  reserveDelegation(run, provider) {
+    return this.tx(() => {
+      if (this.delegationCount() >= 2)
+        throw Error("DELEGATION_BUDGET_EXHAUSTED");
+      const result = this.db
+        .prepare(
+          "INSERT INTO delegations(run,provider,state,detail) VALUES(?,?,?,?)",
+        )
+        .run(
+          run,
+          provider,
+          "RESERVED",
+          JSON.stringify({
+            at: now(),
+            unit: "delegatedRuns",
+            modelRequests: null,
+          }),
+        );
+      return Number(result.lastInsertRowid);
+    });
+  }
+  delegationCount() {
+    return this.db.prepare("SELECT count(*) n FROM delegations").get().n;
+  }
+  settleDelegation(id, state) {
+    this.db.prepare("UPDATE delegations SET state=? WHERE id=?").run(state, id);
+  }
+  humanReview(id, decision, note = "") {
+    const t = this.check(id);
+    if (t.state !== "MEMO_READY") throw Error("MEMO_NOT_READY");
+    if (
+      !["FOLLOW_UP", "DISMISS", "NEEDS_WORK"].includes(decision) ||
+      typeof note !== "string" ||
+      note.length > 2000
+    )
+      throw Error("INVALID_HUMAN_REVIEW");
+    if (/sk-[A-Za-z0-9]{20,}/.test(note)) throw Error("SECRET_IN_OUTPUT");
+    this.tx(() => {
+      this.db
+        .prepare("INSERT INTO human_reviews VALUES(?,?,?,?,?,?)")
+        .run(
+          uuid("human-review"),
+          id,
+          t.checkpoint.memo,
+          decision,
+          note,
+          now(),
+        );
+      this.event("HUMAN_REVIEW_RECORDED", {
+        task: id,
+        decision,
+        authoritativeWrite: false,
+      });
+    });
   }
   reserve(run) {
     return this.tx(() => {
@@ -239,6 +325,16 @@ export class Store {
   }
   snapshot() {
     return {
+      policies: this.db
+        .prepare("SELECT task,reviewer FROM task_policies")
+        .all(),
+      delegations: this.db
+        .prepare("SELECT * FROM delegations ORDER BY id")
+        .all()
+        .map((d) => ({ ...d, detail: JSON.parse(d.detail) })),
+      humanReviews: this.db
+        .prepare("SELECT * FROM human_reviews ORDER BY created,id")
+        .all(),
       snapshots: this.db
         .prepare("SELECT content FROM snapshots ORDER BY id")
         .all()

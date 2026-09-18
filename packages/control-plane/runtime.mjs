@@ -15,6 +15,12 @@ import {
   SpawnSubagent,
 } from "../harness-adapter/harness.mjs";
 import { HarnessSubagentExecutor } from "../harness-adapter/executor.mjs";
+import {
+  AgentWork,
+  PROVIDERS,
+  provider as workProvider,
+} from "../agent-work/providers.mjs";
+import { ClaudeCodeExecutor } from "../agent-work/claude-code.mjs";
 import { EphemeralCredentials } from "../harness-adapter/credentials.mjs";
 import {
   hash,
@@ -66,6 +72,14 @@ export class Runtime {
       hasPower: () => this.credentials.hasPower(),
       event: (kind, detail) => this.store.event(kind, detail),
     });
+    this.claudeExecutor = new ClaudeCodeExecutor(this.root, {
+      credentials: this.credentials,
+      event: (kind, detail) => this.store.event(kind, detail),
+    });
+    this.agentWork = new AgentWork({
+      "native-harness": this.executor,
+      "claude-code": this.claudeExecutor,
+    });
     if (ctx.tools.schemas().length) throw Error("TOOLS_NOT_EMPTY");
     this.originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, options = {}) => {
@@ -74,7 +88,8 @@ export class Runtime {
         String(url) !== "https://api.deepseek.com/v1/chat/completions" ||
         options.method !== "POST" ||
         !this.credentials.hasPower() ||
-        !execution
+        !execution ||
+        execution.providerId !== "native-harness"
       )
         throw Error("MODEL_CAPABILITY_OFF");
       const body = JSON.parse(options.body);
@@ -146,8 +161,58 @@ export class Runtime {
     this.store.event("CAPABILITY_ACTIVATED", { boot: this.boot });
   }
   status() {
+    const snapshot = this.store.snapshot();
     return {
-      ...this.store.snapshot(),
+      ...snapshot,
+      providers: PROVIDERS,
+      environment: snapshot.tasks.map((t) => {
+        const reviewer = this.store.reviewer(t.id);
+        const pending = [
+          "RESEARCH_PENDING",
+          "REVIEW_PENDING",
+          "MEMO_PENDING",
+        ].includes(t.state);
+        const nativeNeed =
+          t.state === "RESEARCH_PENDING"
+            ? reviewer === "native-harness"
+              ? 3
+              : 2
+            : t.state === "REVIEW_PENDING" && reviewer === "native-harness"
+              ? 1
+              : 0;
+        const needsDelegation =
+          ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state) &&
+          reviewer === "claude-code";
+        const budgetReady =
+          this.store.count() + nativeNeed <= 6 &&
+          (!needsDelegation || this.store.delegationCount() < 2);
+        return {
+          taskId: t.id,
+          reviewer,
+          budgetReady,
+          canResume:
+            !this.busy &&
+            pending &&
+            budgetReady &&
+            (t.state === "MEMO_PENDING" || this.credentials.hasPower()),
+          canSelectReviewer:
+            !this.busy &&
+            ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state) &&
+            !snapshot.runs.some(
+              (r) => r.task === t.id && r.role === "Reviewer",
+            ),
+          canCompare:
+            !this.busy &&
+            t.state === "MEMO_READY" &&
+            this.credentials.hasPower(),
+          allowedActions: [
+            "VIEW_SNAPSHOT",
+            ...(t.checkpoint.research ? ["VIEW_ARTIFACT"] : []),
+            ...(!this.credentials.hasPower() && pending ? ["ACTIVATE"] : []),
+            ...(t.state === "MEMO_READY" ? ["HUMAN_REVIEW"] : []),
+          ],
+        };
+      }),
       runtime: {
         pid: process.pid,
         boot: this.boot,
@@ -157,6 +222,8 @@ export class Runtime {
         providerValidated: !!this.providerValidated,
         busy: this.busy,
         liveSessions: this.ctx.agents?.list().length ?? 0,
+        liveExternalRuns: this.claudeExecutor.active ? 1 : 0,
+        delegationLimit: 2,
         environmentKeyPresent: Object.keys(process.env).some(
           (k) =>
             /DEEPSEEK.*KEY|FLOWCREDIT_EPHEMERAL_POWER/.test(k) &&
@@ -170,7 +237,7 @@ export class Runtime {
     this.generation++;
     this.credentials.clear();
     this.providerValidated = false;
-    this.executor.cancel();
+    this.agentWork.cancel();
     if (this.pending) await this.pending.catch(() => {});
     this.store.dutyUpdate({ status: "PAUSED" });
     this.store.event("STAND_DOWN", {
@@ -180,34 +247,46 @@ export class Runtime {
     });
     return this.status();
   }
-  async invoke(task, role, input, instructions) {
+  async invoke(task, role, input, instructions, options = {}) {
+    const providerId =
+      options.provider ??
+      (role === "Reviewer" ? this.store.reviewer(task.id) : "native-harness");
+    workProvider(providerId, role);
     if (!this.credentials.hasPower()) throw Error("MODEL_CAPABILITY_OFF");
-    if (this.store.count() >= 6) throw Error("MODEL_BUDGET_EXHAUSTED");
+    if (providerId === "native-harness" && this.store.count() >= 6)
+      throw Error("MODEL_BUDGET_EXHAUSTED");
+    if (providerId === "claude-code" && this.store.delegationCount() >= 2)
+      throw Error("DELEGATION_BUDGET_EXHAUSTED");
     if (this.execution) throw Error("EXECUTOR_BUSY");
     const run = uuid("run"),
       generation = this.generation;
-    const execution = { run, role, requestIds: [] };
+    const execution = { run, role, providerId, requestIds: [] };
     this.execution = execution;
     this.toolReads = [];
-    this.store.db
-      .prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)")
-      .run(
-        run,
-        task.id,
-        role,
-        null,
-        this.boot,
-        "RUNNING",
-        JSON.stringify({ executor: "harness-spawn", inputDigest: hash(input) }),
-      );
-    this.store.state(
+    this.store.db.prepare("INSERT INTO runs VALUES(?,?,?,?,?,?,?)").run(
+      run,
       task.id,
-      role === "Researcher" ? "RESEARCH_RUNNING" : "REVIEW_RUNNING",
-      { ...task.checkpoint, nextAction: role },
+      role,
+      null,
+      this.boot,
+      "RUNNING",
+      JSON.stringify({
+        workProvider: providerId,
+        comparison: !!options.comparison,
+        inputDigest: hash(input),
+      }),
     );
-    let summary;
+    if (!options.comparison)
+      this.store.state(
+        task.id,
+        role === "Researcher" ? "RESEARCH_RUNNING" : "REVIEW_RUNNING",
+        { ...task.checkpoint, nextAction: role },
+      );
+    let summary, delegation;
     try {
-      const result = await this.executor.execute({
+      if (providerId === "claude-code")
+        delegation = this.store.reserveDelegation(run, providerId);
+      const result = await this.agentWork.execute(providerId, {
         task,
         role,
         input,
@@ -221,12 +300,22 @@ export class Runtime {
         onStarted: (session, lineage) => {
           this.store.db
             .prepare("UPDATE runs SET session=?,summary=? WHERE id=?")
-            .run(session, JSON.stringify(lineage), run);
+            .run(
+              session,
+              JSON.stringify({
+                ...lineage,
+                workProvider: providerId,
+                comparison: !!options.comparison,
+                inputDigest: hash(input),
+              }),
+              run,
+            );
         },
       });
       this.toolReads = result.toolReads;
       summary = {
         ...result.receipt,
+        comparison: !!options.comparison,
         toolReads: result.toolReads,
         initialPromptDigest: hash(input),
         researchArtifactId: input.researchArtifact?.id ?? null,
@@ -245,6 +334,17 @@ export class Runtime {
       this.store.db
         .prepare("UPDATE runs SET state='FAILED' WHERE id=?")
         .run(run);
+      const failureCode =
+        generation !== this.generation
+          ? "CANCELED"
+          : /^[A-Z_]+$/.test(error.message)
+            ? error.message
+            : "EXECUTION_FAILED";
+      const prior = JSON.parse(
+        this.store.db.prepare("SELECT summary FROM runs WHERE id=?").get(run)
+          .summary,
+      );
+      summary = { ...prior, ...summary, workProvider: providerId, failureCode };
       if (generation !== this.generation) throw Error("CANCELED");
       throw error;
     } finally {
@@ -256,10 +356,17 @@ export class Runtime {
           completed ? "COMPLETED" : "FAILED_OR_CANCELED",
           { run, ...summary },
         );
+      if (delegation)
+        this.store.settleDelegation(
+          delegation,
+          completed ? "COMPLETED" : "FAILED_OR_CANCELED",
+        );
       if (summary)
         this.store.db
-          .prepare("UPDATE runs SET summary=? WHERE id=?")
-          .run(JSON.stringify(summary), run);
+          .prepare(
+            "UPDATE runs SET session=COALESCE(?,session),summary=? WHERE id=?",
+          )
+          .run(summary.childSessionId ?? null, JSON.stringify(summary), run);
       this.execution = null;
     }
   }
@@ -324,9 +431,10 @@ export class Runtime {
       });
     });
   }
-  async review(id) {
+  reviewInput(id) {
     const t = this.store.check(id),
       a = this.store.artifact(t.checkpoint.research);
+    if (!a) throw Error("ARTIFACT_MISSING");
     const cited = [
       ...new Set(a.content.observations.flatMap((o) => o.citations)),
     ];
@@ -345,6 +453,10 @@ export class Runtime {
         .bound(id)
         .records.filter((r) => cited.includes(r.id)),
     };
+    return { t, a, input };
+  }
+  async review(id) {
+    const { t, a, input } = this.reviewInput(id);
     const { raw, run } = await this.invoke(
       t,
       "Reviewer",
@@ -423,9 +535,63 @@ export class Runtime {
       });
     });
   }
+  async compare(id, providerId) {
+    if (this.busy) throw Error("BUSY");
+    workProvider(providerId, "Reviewer");
+    const { t, a, input } = this.reviewInput(id);
+    if (t.state !== "MEMO_READY") throw Error("MEMO_NOT_READY");
+    this.busy = true;
+    this.pending = (async () => {
+      let run;
+      try {
+        const result = await this.invoke(
+          t,
+          "Reviewer",
+          input,
+          REVIEW_INSTRUCTIONS,
+          { provider: providerId, comparison: true },
+        );
+        run = result.run;
+        const content = {
+          ...validateReview(result.raw, a),
+          contextDigest: t.digest,
+          consumedResearchDigest: a.digest,
+          snapshotId: t.context.snapshotId,
+          candidate: true,
+          comparison: true,
+          workProvider: providerId,
+        };
+        this.store.tx(() => {
+          this.store.putArtifact(id, run, "REVIEW_COMPARISON", content);
+          this.store.db
+            .prepare("UPDATE runs SET state='SUCCESS' WHERE id=?")
+            .run(run);
+          this.store.event("REVIEW_COMPARISON_COMPLETED", {
+            task: id,
+            provider: providerId,
+          });
+        });
+        await this.export();
+      } catch (error) {
+        if (run)
+          this.store.db
+            .prepare("UPDATE runs SET state='FAILED' WHERE id=?")
+            .run(run);
+        throw error;
+      } finally {
+        this.busy = false;
+      }
+    })();
+    await this.pending;
+    return this.status();
+  }
   async execute(action) {
     if (this.busy) throw Error("BUSY");
-    if (!this.credentials.hasPower()) throw Error("MODEL_CAPABILITY_OFF");
+    if (
+      !this.credentials.hasPower() &&
+      !["MEMO_READY", "MEMO_PENDING"].includes(this.store.task(action)?.state)
+    )
+      throw Error("MODEL_CAPABILITY_OFF");
     this.busy = true;
     this.pending = (async () => {
       let id;
@@ -447,6 +613,11 @@ export class Runtime {
           });
           throw e;
         }
+        if (
+          ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state) &&
+          !this.status().environment.find((e) => e.taskId === id).budgetReady
+        )
+          throw Error("WORK_BUDGET_EXHAUSTED");
         if (t.state === "RESEARCH_PENDING") await this.research(id);
         t = this.store.check(id);
         if (t.state === "REVIEW_PENDING") await this.review(id);

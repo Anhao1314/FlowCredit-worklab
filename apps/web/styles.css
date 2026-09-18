@@ -524,3 +524,34 @@ label {
     transition: background 0.18s;
   }
 }
+
+.provider-choice {
+  margin: 1.25rem 0;
+  padding: 1rem 0;
+  border-block: 1px solid var(--line, #ddd);
+}
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  border: 1px solid #b9b9ac;
+  border-radius: 5px;
+  padding: 0.6rem;
+  max-width: 100%;
+}
+form[data-human] label {
+  display: block;
+  margin: 0.8rem 0 0.35rem;
+}
+form[data-human] textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.8rem;
+}
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #315f4b;
+  outline-offset: 3px;
+}

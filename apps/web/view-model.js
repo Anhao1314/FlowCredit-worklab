@@ -27,6 +27,7 @@ export function project(state) {
     state.runtime.requestLimit - state.budget.length,
   );
   const tasks = state.tasks.map((t) => {
+    const environment = state.environment?.find((e) => e.taskId === t.id);
     const resumable = [
       "RESEARCH_PENDING",
       "REVIEW_PENDING",
@@ -37,7 +38,9 @@ export function project(state) {
     return {
       ...t,
       label: taskStates[t.state] || t.state,
-      canResume: ready && idle && resumable && remaining >= cost,
+      canResume: environment
+        ? environment.canResume
+        : ready && idle && resumable && remaining >= cost,
       explanation:
         reasons[t.checkpoint.reason] ||
         t.checkpoint.reason ||
@@ -47,9 +50,9 @@ export function project(state) {
             ? "请查看复核意见，当前任务不会自动重试。"
             : !resumable
               ? "执行状态已保存。"
-              : !ready
+              : !ready && t.state !== "MEMO_PENDING"
                 ? "提供临时 Key 后可继续，已有工作会保留。"
-                : remaining < cost
+                : (environment ? !environment.budgetReady : remaining < cost)
                   ? "剩余请求预算不足以完成下一阶段，停止派发。"
                   : "继续时跳过已提交阶段，保持原版本与授权。"),
     };

@@ -1,5 +1,7 @@
 # Harness 原生协作迁移
 
+本文记录 35847d9 时的原生迁移。后续 0.2 已完成外部 Claude Code Reviewer 接入和真实验收，当前说明见 [本地平台](local-platform.md)；下文的“未接入”描述属于迁移基线。
+
 本次将 Researcher / Reviewer 的默认执行路径迁移到官方 Harness 子代理服务。FlowCredit 仍负责任务、固定快照、授权范围、预算、候选产物与恢复；Harness 负责每一步的父子会话、执行、取消与释放。没有复制或修改 Harness 源码。
 
 ## 实际执行链

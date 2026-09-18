@@ -15,7 +15,8 @@ const knowledge = join(root, "knowledge"),
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("INVALID_PORT");
 const bindHost = process.env.FLOWCREDIT_BIND_HOST || "127.0.0.1";
-if (!["127.0.0.1", "0.0.0.0"].includes(bindHost)) throw Error("INVALID_BIND_HOST");
+if (!["127.0.0.1", "0.0.0.0"].includes(bindHost))
+  throw Error("INVALID_BIND_HOST");
 // Container binding is opt-in; browser Host/Origin checks remain loopback-only.
 const origin = `http://127.0.0.1:${port}`;
 seed(knowledge);
@@ -120,6 +121,27 @@ const server = createServer(async (req, res) => {
         store.createBound(
           adapter.snapshot("E", 1, ["R-01", "R-02", "R-03", "R-04"]),
         );
+        return send(200, status());
+      case "/api/select-reviewer":
+        if (runtime.busy) throw Error("BUSY");
+        store.setReviewer(body.taskId, body.provider);
+        return send(200, status());
+      case "/api/compare-reviewer": {
+        const before = adapter.fingerprints();
+        try {
+          await runtime.compare(body.taskId, body.provider);
+        } finally {
+          const unchanged =
+            JSON.stringify(before) === JSON.stringify(adapter.fingerprints());
+          if (!unchanged) throw Error("RESEARCH_MEMORY_CHANGED");
+        }
+        return send(200, status());
+      }
+      case "/api/human-review":
+        if (runtime.busy) throw Error("BUSY");
+        if (runtime.credentials.contains(JSON.stringify(body)))
+          throw Error("SECRET_IN_OUTPUT");
+        store.humanReview(body.taskId, body.decision, body.note);
         return send(200, status());
       case "/api/test-v2":
         if (runtime.busy || !store.task("E") || store.task("F"))

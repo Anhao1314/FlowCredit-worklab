@@ -1,5 +1,7 @@
 # Platform architecture
 
+For the 0.2 AgentWork integration (native Harness plus a tool-free Claude Code Reviewer), separate delegation budgets, comparison artifacts and local lifecycle, see [local platform](local-platform.md). The diagram below describes the native reference path.
+
 ```mermaid
 flowchart TD
   Human[Human: authorization and research authority] --> Web[Experience: Activation and Workspace]
