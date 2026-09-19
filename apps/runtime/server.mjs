@@ -210,6 +210,18 @@ const server = createServer(async (req, res) => {
         await guardMemory(body.taskId, () => runtime.execute(body.taskId));
         return send(200, status());
       }
+      case "/api/start-repair": {
+        // Public action for an already-created Repair Task shell: the human
+        // starts the child that REQUEST_REVISION (or an explicit creation)
+        // left waiting. It never creates a second task and never cascades.
+        if (!store.task(body.taskId)) throw Error("INVALID_TASK");
+        const repairId = store.openRepairTaskId(body.taskId);
+        if (!repairId) throw Error("REPAIR_TASK_MISSING");
+        if (store.task(repairId).state !== "RESEARCH_PENDING")
+          throw Error("REPAIR_NOT_STARTABLE");
+        await guardMemory(repairId, () => runtime.execute(repairId));
+        return send(200, status());
+      }
       case "/api/create-repair":
         if (runtime.busy) throw Error("BUSY");
         if (runtime.credentials.contains(JSON.stringify(body)))

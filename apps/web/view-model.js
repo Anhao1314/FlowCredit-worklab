@@ -37,15 +37,31 @@ export function project(state) {
     ].includes(t.state);
     const cost =
       t.state === "RESEARCH_PENDING" ? 3 : t.state === "REVIEW_PENDING" ? 1 : 0;
+    // A Repair Task shell is projected from the same lineage the runtime uses:
+    // the public exit for an existing shell is START_REPAIR, never a second
+    // creation.
+    const repairChild = state.tasks.find(
+      (x) =>
+        x.kind === "REPAIR" &&
+        x.lineage?.parentTaskId === t.id &&
+        !["MEMO_READY", "ABANDONED"].includes(x.state),
+    );
+    const startRepairTaskId =
+      repairChild?.state === "RESEARCH_PENDING" ? repairChild.id : null;
     // The runtime stays authoritative; the local projection only mirrors the
     // same deterministic exits when no environment entry is available.
     const allowedActions = environment?.allowedActions ?? [
       ...(t.state === "NEEDS_ATTENTION" &&
       t.checkpoint.research &&
-      t.checkpoint.review
+      t.checkpoint.review &&
+      !repairChild
         ? ["CREATE_REPAIR_TASK"]
         : []),
+      ...(startRepairTaskId ? ["START_REPAIR"] : []),
       ...(["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state)
+        ? ["ABANDON_TASK"]
+        : []),
+      ...(t.kind === "REPAIR" && t.state.endsWith("_PENDING")
         ? ["ABANDON_TASK"]
         : []),
     ];
@@ -55,7 +71,11 @@ export function project(state) {
         (t.kind === "REPAIR" ? "修复任务 · " : "") +
         (taskStates[t.state] || t.state),
       allowedActions,
-      repairTaskId: environment?.repairTaskId ?? null,
+      repairTaskId: environment?.repairTaskId ?? repairChild?.id ?? null,
+      startRepairTaskId: environment?.startRepairTaskId ?? startRepairTaskId,
+      canStartRepair: environment
+        ? environment.canStartRepair
+        : ready && idle && !!startRepairTaskId && remaining >= 3,
       reviewProvider: environment?.reviewProvider ?? null,
       canResume: environment
         ? environment.canResume

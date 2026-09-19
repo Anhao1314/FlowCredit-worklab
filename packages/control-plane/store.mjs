@@ -148,11 +148,43 @@ export class Store {
       ? (t.lineage?.snapshotOwnerId ?? t.lineage?.parentTaskId)
       : id;
   }
+  repairBinding(id) {
+    const t = this.task(id);
+    if (!t || t.kind !== "REPAIR") throw Error("TASK_MISSING");
+    const lineage = t.lineage ?? {},
+      ownerId = lineage.snapshotOwnerId,
+      owner = ownerId ? this.task(ownerId) : null,
+      parent = lineage.parentTaskId ? this.task(lineage.parentTaskId) : null;
+    // A Repair Task must auditably prove it is bound to the exact frozen
+    // Snapshot of its chain root: the same snapshot identity, the same owner,
+    // and the owner's frozen context digest. Tampering with snapshotId,
+    // snapshotOwnerId or contextDigest fails before any dispatch.
+    if (
+      !owner ||
+      !parent ||
+      this.snapshotOwner(ownerId) !== ownerId ||
+      this.snapshotOwner(parent.id) !== ownerId ||
+      lineage.snapshotId !== owner.context.snapshotId ||
+      lineage.contextDigest !== owner.digest ||
+      t.context.snapshotId !== owner.context.snapshotId ||
+      t.context.snapshotDigest !== owner.context.snapshotDigest ||
+      t.context.baseRevisionId !== owner.context.baseRevisionId ||
+      t.context.subjectId !== owner.context.subjectId ||
+      t.context.claimId !== owner.context.claimId ||
+      t.context.asOf !== owner.context.asOf ||
+      JSON.stringify(t.context.scope) !== JSON.stringify(owner.context.scope) ||
+      JSON.stringify(t.context.claim) !== JSON.stringify(owner.context.claim)
+    )
+      throw Error("REPAIR_BINDING");
+    return ownerId;
+  }
   bound(id) {
     const t = this.task(id);
     if (!t) throw Error("TASK_MISSING");
     // A Repair Task never owns a Snapshot of its own: it can only resolve the
     // exact Snapshot of its chain root, so the context cannot silently expand.
+    // Every repair execution re-proves that binding before it can dispatch.
+    if (t.kind === "REPAIR") this.repairBinding(id);
     const owner = this.snapshotOwner(id);
     const row = this.db
       .prepare("SELECT content FROM snapshots WHERE task=?")
@@ -238,6 +270,19 @@ export class Store {
     }
     return null;
   }
+  activeChildTaskId(parentId) {
+    for (const { id } of this.db
+      .prepare("SELECT id FROM tasks WHERE kind='REPAIR' ORDER BY id")
+      .all()) {
+      const t = this.task(id);
+      if (
+        t.lineage.parentTaskId === parentId &&
+        !["MEMO_READY", "ABANDONED"].includes(t.state)
+      )
+        return id;
+    }
+    return null;
+  }
   createRepairTask(parentId, { reviewArtifactId, reason } = {}) {
     const parent = this.task(parentId);
     if (!parent) throw Error("TASK_MISSING");
@@ -276,9 +321,11 @@ export class Store {
     ).slice(0, 500);
     const id = uuid("repair"),
       snapshotOwnerId = this.snapshotOwner(parentId),
+      snapshotOwner = this.task(snapshotOwnerId),
       lineage = {
         parentTaskId: parentId,
-        snapshotId: parent.context.snapshotId,
+        snapshotId: snapshotOwner.context.snapshotId,
+        contextDigest: snapshotOwner.digest,
         inputArtifactId: research.id,
         reviewArtifactId: review.id,
         reason: finalReason,
@@ -287,16 +334,16 @@ export class Store {
       },
       context = {
         taskId: id,
-        dutyId: parent.context.dutyId,
-        subjectId: parent.context.subjectId,
-        claimId: parent.context.claimId,
-        baseRevisionId: parent.context.baseRevisionId,
-        claim: parent.context.claim,
-        snapshotId: parent.context.snapshotId,
-        snapshotDigest: parent.context.snapshotDigest,
-        scope: parent.context.scope,
-        authorizedRecordIds: parent.context.authorizedRecordIds,
-        asOf: parent.context.asOf,
+        dutyId: snapshotOwner.context.dutyId,
+        subjectId: snapshotOwner.context.subjectId,
+        claimId: snapshotOwner.context.claimId,
+        baseRevisionId: snapshotOwner.context.baseRevisionId,
+        claim: snapshotOwner.context.claim,
+        snapshotId: snapshotOwner.context.snapshotId,
+        snapshotDigest: snapshotOwner.context.snapshotDigest,
+        scope: snapshotOwner.context.scope,
+        authorizedRecordIds: snapshotOwner.context.authorizedRecordIds,
+        asOf: snapshotOwner.context.asOf,
         kind: "REPAIR",
         parentTaskId: parentId,
         inputArtifactId: research.id,
@@ -335,8 +382,20 @@ export class Store {
   abandon(id, note = "") {
     const t = this.task(id);
     if (!t) throw Error("TASK_MISSING");
-    if (!["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state))
+    // A Repair Task still waiting for its human may be started or abandoned;
+    // nothing else waiting in *_PENDING gains a new exit here.
+    const pendingRepair =
+      t.kind === "REPAIR" &&
+      ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state);
+    if (
+      !pendingRepair &&
+      !["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state)
+    )
       throw Error("TASK_NOT_ABANDONABLE");
+    // A parent may not be abandoned while a child Repair Task is still
+    // startable or running: no automatic cascade, no silently abandoned child
+    // that remains executable.
+    if (this.activeChildTaskId(id)) throw Error("ACTIVE_CHILD_TASK_EXISTS");
     if (typeof note !== "string" || note.length > 2000)
       throw Error("INVALID_HUMAN_NOTE");
     if (/sk-[A-Za-z0-9]{20,}/.test(note)) throw Error("SECRET_IN_OUTPUT");

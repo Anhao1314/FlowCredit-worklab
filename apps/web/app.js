@@ -146,7 +146,7 @@ function render() {
                       "",
                     )}</select><p class="subtle">${selectedProvider === "claude-code" ? "复核消耗一次外部委派；内部模型请求与费用未知。" : "复核最多一次原生模型请求。"} 首次复核开始后选择锁定。</p></div>`
                 : ""
-            }<ol class="pipeline"><li class="done">固定目标与授权</li><li class="${research ? "done" : t.state === "RESEARCH_RUNNING" ? "active" : ""}">Researcher · ${research ? "已交付" : t.state === "RESEARCH_RUNNING" ? "研究中" : "待执行"}</li><li class="${review ? "done" : t.state === "REVIEW_RUNNING" ? "active" : ""}">Reviewer · ${review ? "已交付" : t.state === "REVIEW_RUNNING" ? "复核中" : "待执行"}</li><li class="${memo ? "done" : ""}">候选备忘 · ${memo ? "就绪" : "未形成"}</li></ol><p>${esc(t.explanation)}</p>${t.state.endsWith("_PENDING") ? `<button class="primary resume" data-task="${t.id}" ${locked || !t.canResume ? "disabled" : ""}>${t.kind === "REPAIR" ? (t.state === "RESEARCH_PENDING" ? "开始修复" : "继续修复") : t.state === "RESEARCH_PENDING" ? "开始研究" : "继续未完成阶段"}</button>${!state.runtime.modelOnline ? " <button data-power>提供临时 Key</button>" : ""}` : ""}${["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state) ? `<div class="task-exits">${t.repairTaskId ? `<p class="subtle">已创建修复任务 ${esc(t.repairTaskId)}；它不会自动执行，需要你显式开始。</p>` : ""}${t.allowedActions.includes("CREATE_REPAIR_TASK") ? `<button data-create-repair="${t.id}" ${locked ? "disabled" : ""}>创建修复任务</button>` : ""}${t.allowedActions.includes("ABANDON_TASK") ? `<button data-abandon="${t.id}" ${locked ? "disabled" : ""}>放弃任务</button>` : ""}</div>` : ""}
+            }<ol class="pipeline"><li class="done">固定目标与授权</li><li class="${research ? "done" : t.state === "RESEARCH_RUNNING" ? "active" : ""}">Researcher · ${research ? "已交付" : t.state === "RESEARCH_RUNNING" ? "研究中" : "待执行"}</li><li class="${review ? "done" : t.state === "REVIEW_RUNNING" ? "active" : ""}">Reviewer · ${review ? "已交付" : t.state === "REVIEW_RUNNING" ? "复核中" : "待执行"}</li><li class="${memo ? "done" : ""}">候选备忘 · ${memo ? "就绪" : "未形成"}</li></ol><p>${esc(t.explanation)}</p>${t.state.endsWith("_PENDING") ? `<button class="primary resume" data-task="${t.id}" ${locked || !t.canResume ? "disabled" : ""}>${t.kind === "REPAIR" ? (t.state === "RESEARCH_PENDING" ? "开始修复" : "继续修复") : t.state === "RESEARCH_PENDING" ? "开始研究" : "继续未完成阶段"}</button>${!state.runtime.modelOnline ? " <button data-power>提供临时 Key</button>" : ""}` : ""}${["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state) || (t.kind === "REPAIR" && t.state.endsWith("_PENDING")) ? `<div class="task-exits">${t.repairTaskId ? `<p class="subtle">已创建修复任务 ${esc(t.repairTaskId)}；它不会自动执行，需要你显式发起 START_REPAIR。</p>` : ""}${t.allowedActions.includes("START_REPAIR") ? `<button data-start-repair="${t.id}" ${locked || !t.canStartRepair ? "disabled" : ""}>开始修复（START_REPAIR）</button>` : ""}${t.allowedActions.includes("CREATE_REPAIR_TASK") ? `<button data-create-repair="${t.id}" ${locked ? "disabled" : ""}>创建修复任务</button>` : ""}${t.allowedActions.includes("ABANDON_TASK") ? `<button data-abandon="${t.id}" ${locked ? "disabled" : ""}>放弃任务</button>` : ""}</div>` : ""}
     ${output ? `<section class="candidate-output"><h3>${memo ? "候选研究备忘" : "研究候选 · 尚未形成最终备忘"}</h3><p class="subtle">尚未经人工接纳 · 不改变正式研究记录</p>${output.content.observations.map((o) => `<div class="observation"><p>${esc(o.observation)}</p><div class="refs">${o.citations.map((id) => `<a href="#${t.id}-${esc(id)}" data-source>${esc(snap.records.find((r) => r.id === id)?.label || id)} 查看依据</a>`).join("")}</div><ul class="subtle">${list(o.limitations)}</ul></div>`).join("")}</section>` : '<p class="empty">尚无候选发现。执行者需要先实际读取授权原文。</p>'}
     ${review ? `<section class="review"><h3>独立复核 · ${esc(review.content.decision)}</h3><p class="subtle">模型 Reviewer 的判断，不是人工批准。</p><ul>${list(review.content.issues.map((i) => i.detail))}</ul><ul class="subtle">${list(review.content.reviewLimitations)}</ul></section>` : ""}
     ${t.checkpoint.unresolvedIssues?.length ? `<section class="review"><h3>仍待确认</h3><ul>${list(t.checkpoint.unresolvedIssues)}</ul></section>` : ""}
@@ -243,6 +243,10 @@ const errors = {
   REPAIR_REQUIRES_REVIEW: "创建修复任务需要一份非 PASS 的复核产物。",
   REPAIR_REQUIRES_RESEARCH_ARTIFACT: "没有可修复的研究产物，只能放弃任务。",
   REPAIR_BINDING: "修复绑定校验失败，操作已停止。",
+  REPAIR_TASK_MISSING: "没有可开始的修复任务；请先显式创建修复任务。",
+  REPAIR_NOT_STARTABLE: "修复任务当前状态不能开始。",
+  ACTIVE_CHILD_TASK_EXISTS:
+    "存在未完成的修复任务；请先完成或放弃它，再处理原任务。",
   TASK_NOT_ABANDONABLE: "当前任务状态不能放弃。",
   CANCELED: "执行已停止，未完成结果不会作为成功备忘。",
   BUSY: "已有任务正在执行，请等待或停止协作。",
@@ -261,12 +265,11 @@ async function act(name, body = {}) {
     $("ignition-detail").textContent = "等待后端确认临时能力";
   }
   if (name === "stand-down") scene.cancel();
-  $("notice").textContent =
-    name === "resume"
-      ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
-      : name === "activate"
-        ? "正在提供临时能力…"
-        : "正在保存状态…";
+  $("notice").textContent = ["resume", "start-repair"].includes(name)
+    ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
+    : name === "activate"
+      ? "正在提供临时能力…"
+      : "正在保存状态…";
   if (name === "activate") $("activation-status").textContent = "正在激活…";
   render();
   try {
@@ -295,10 +298,12 @@ async function act(name, body = {}) {
             : name === "test-v2"
               ? "合成库已新增 v2；已有任务保持原版本。"
               : name === "create-repair"
-                ? "已创建修复任务；它保持原快照，需要你显式开始。"
-                : name === "abandon"
-                  ? "任务已放弃；已有产物保留，不会自动重试。"
-              : "状态已保存。";
+                ? "已创建修复任务；请显式发起 START_REPAIR 才会执行。"
+                : name === "start-repair"
+                  ? "修复任务已开始；它保持原快照，可随时停止协作。"
+                  : name === "abandon"
+                    ? "任务已放弃；已有产物保留，不会自动重试。"
+                    : "状态已保存。";
       if (name === "activate") {
         $("power-panel").close();
         activating = false;
@@ -453,6 +458,9 @@ document.addEventListener("click", (e) => {
     });
   const repair = e.target.closest("[data-create-repair]");
   if (repair) act("create-repair", { taskId: repair.dataset.createRepair });
+  const startRepair = e.target.closest("[data-start-repair]");
+  if (startRepair)
+    act("start-repair", { taskId: startRepair.dataset.startRepair });
   const abandon = e.target.closest("[data-abandon]");
   if (abandon) act("abandon", { taskId: abandon.dataset.abandon });
   const b = e.target.closest(".resume");

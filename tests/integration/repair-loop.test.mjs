@@ -170,6 +170,8 @@ test("REQUEST_REVISION opens a same-snapshot Repair Task, a human starts it, and
     assert.equal(repair.state, "RESEARCH_PENDING");
     assert.equal(repair.lineage.parentTaskId, "E");
     assert.equal(repair.lineage.snapshotId, "S1");
+    assert.equal(repair.lineage.snapshotOwnerId, "E");
+    assert.equal(repair.lineage.contextDigest, e.digest);
     assert.equal(repair.lineage.inputArtifactId, originalResearchId);
     assert.equal(repair.lineage.reviewArtifactId, originalReviewId);
     assert.match(repair.lineage.reason, /表述超出授权资料支持范围/);
@@ -197,8 +199,11 @@ test("REQUEST_REVISION opens a same-snapshot Repair Task, a human starts it, and
       .status()
       .environment.find((x) => x.taskId === "E");
     assert.equal(environment.repairTaskId, repairId);
+    assert.equal(environment.startRepairTaskId, repairId);
+    assert.equal(environment.canStartRepair, true);
     assert.equal(environment.reviewProvider, "native-harness");
     assert.ok(environment.allowedActions.includes("ABANDON_TASK"));
+    assert.ok(environment.allowedActions.includes("START_REPAIR"));
     assert.ok(!environment.allowedActions.includes("CREATE_REPAIR_TASK"));
     assert.equal(store.createRepairTask("E", {}).id, repairId);
 
@@ -250,6 +255,11 @@ test("REQUEST_REVISION opens a same-snapshot Repair Task, a human starts it, and
     assert.equal(memo.content.authority.revisionCreated, false);
     assert.equal(memo.content.authority.evidenceAdmitted, false);
     assert.equal(store.snapshot().humanReviews.length, 0);
+    // Once the child repair is terminal, START_REPAIR is no longer offered.
+    const settled = runtime.status().environment.find((x) => x.taskId === "E");
+    assert.equal(settled.startRepairTaskId, null);
+    assert.ok(!settled.allowedActions.includes("START_REPAIR"));
+    assert.equal(store.activeChildTaskId("E"), null);
 
     // Repeated resume does not duplicate committed paid work.
     const artifactsBefore = store.snapshot().artifacts.length;
@@ -364,6 +374,27 @@ test("blocked work exposes only human exits: explicit repair creation and abando
       1,
     );
 
+    // A non-terminal child Repair Task blocks abandoning the parent: no
+    // cascade, no parent ABANDONED while the child stays startable.
+    const withChild = runtime
+      .status()
+      .environment.find((x) => x.taskId === "E");
+    assert.equal(withChild.repairTaskId, repair.id);
+    assert.equal(withChild.startRepairTaskId, repair.id);
+    assert.ok(withChild.allowedActions.includes("START_REPAIR"));
+    assert.ok(!withChild.allowedActions.includes("CREATE_REPAIR_TASK"));
+    assert.throws(
+      () => store.abandon("E", "离线测试：存在未完成修复任务"),
+      /ACTIVE_CHILD_TASK_EXISTS/,
+    );
+    assert.equal(store.task("E").state, "NEEDS_ATTENTION");
+    assert.equal(store.task(repair.id).state, "RESEARCH_PENDING");
+
+    // The explicit human path: abandon the child first, then the parent.
+    assert.equal(
+      store.abandon(repair.id, "离线测试：先放弃修复任务").state,
+      "ABANDONED",
+    );
     const abandoned = store.abandon("E", "离线测试：人工放弃，不自动重试");
     assert.equal(abandoned.state, "ABANDONED");
     assert.equal(store.artifact(e.checkpoint.research).type, "RESEARCH");
@@ -378,7 +409,166 @@ test("blocked work exposes only human exits: explicit repair creation and abando
         .allowedActions.includes("CREATE_REPAIR_TASK"),
       false,
     );
-    assert.equal(store.task(repair.id).state, "RESEARCH_PENDING");
+    assert.equal(store.task(repair.id).state, "ABANDONED");
+  } finally {
+    if (runtime) await runtime.close().catch(() => {});
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a tampered repair binding field is rejected before dispatch with zero model transport calls", async () => {
+  for (const field of ["snapshotId", "snapshotOwnerId", "contextDigest"]) {
+    const dir = mkdtempSync(join(process.cwd(), ".test-repair-binding-"));
+    const original = globalThis.fetch;
+    let adapter,
+      store,
+      runtime,
+      transportCalls = 0;
+    try {
+      const stub = offlineFetch((input) => revise(input, input.task.scope[0]));
+      const setup = offlineSetup(dir, async (url, options) => {
+        transportCalls++;
+        return stub(url, options);
+      });
+      adapter = setup.adapter;
+      store = setup.store;
+      store.createBound(adapter.snapshot("E", 1, ["R-01", "R-02"]));
+      runtime = new Runtime(dir, store);
+      await runtime.init();
+      runtime.activate("offline-binding-sentinel");
+      await runtime.execute("E");
+      const repairId = store.openRepairTaskId("E"),
+        before = store.snapshot(),
+        callsBefore = transportCalls;
+      const lineage = { ...store.task(repairId).lineage };
+      lineage[field] =
+        field === "contextDigest" ? "0".repeat(64) : `tampered-${field}`;
+      store.db
+        .prepare("UPDATE tasks SET lineage=? WHERE id=?")
+        .run(JSON.stringify(lineage), repairId);
+      assert.throws(() => store.check(repairId), /REPAIR_BINDING/, field);
+      await assert.rejects(runtime.execute(repairId), /REPAIR_BINDING/, field);
+      assert.equal(transportCalls, callsBefore, `${field}: no model call`);
+      assert.equal(store.count(), before.budget.length, field);
+      assert.equal(
+        store.snapshot().artifacts.length,
+        before.artifacts.length,
+        field,
+      );
+      assert.equal(
+        store.snapshot().runs.filter((r) => r.task === repairId).length,
+        0,
+        field,
+      );
+      assert.equal(store.task("E").state, "NEEDS_ATTENTION");
+      await runtime.standDown();
+    } finally {
+      if (runtime) await runtime.close().catch(() => {});
+      if (store) store.close();
+      if (adapter) adapter.close();
+      globalThis.fetch = original;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("START_REPAIR is rejected before dispatch when the request budget is insufficient", async () => {
+  const dir = mkdtempSync(join(process.cwd(), ".test-repair-budget-"));
+  const original = globalThis.fetch;
+  let adapter,
+    store,
+    runtime,
+    transportCalls = 0;
+  try {
+    const stub = offlineFetch((input) => revise(input, input.task.scope[0]));
+    const setup = offlineSetup(dir, async (url, options) => {
+      transportCalls++;
+      return stub(url, options);
+    });
+    adapter = setup.adapter;
+    store = setup.store;
+    store.createBound(adapter.snapshot("E", 1, ["R-01", "R-02"]));
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    runtime.activate("offline-budget-sentinel");
+    await runtime.execute("E");
+    const repairId = store.openRepairTaskId("E");
+    // Stand-in for previously consumed paid work, recorded through the real
+    // ledger: 4 of 6 requests are gone, so the repair cannot fit (3 needed).
+    store.reserve("offline-budget-stand-in");
+    const callsBefore = transportCalls,
+      budgetBefore = store.count(),
+      runsBefore = store.snapshot().runs.length,
+      artifactsBefore = store.snapshot().artifacts.length;
+    const environment = runtime
+      .status()
+      .environment.find((x) => x.taskId === "E");
+    assert.equal(environment.canStartRepair, false);
+    await assert.rejects(runtime.execute(repairId), /WORK_BUDGET_EXHAUSTED/);
+    assert.equal(transportCalls, callsBefore, "no model transport call");
+    assert.equal(store.count(), budgetBefore, "no new reservation");
+    assert.equal(store.snapshot().runs.length, runsBefore, "no AgentRun");
+    assert.equal(
+      store
+        .snapshot()
+        .runs.filter((r) => r.task === repairId && r.state === "SUCCESS")
+        .length,
+      0,
+    );
+    assert.equal(store.snapshot().artifacts.length, artifactsBefore);
+    assert.equal(store.task(repairId).state, "RESEARCH_PENDING");
+    await runtime.standDown();
+  } finally {
+    if (runtime) await runtime.close().catch(() => {});
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an execution failure never opens a repair task and never retries automatically", async () => {
+  const dir = mkdtempSync(join(process.cwd(), ".test-failure-exit-"));
+  const original = globalThis.fetch;
+  let adapter,
+    store,
+    runtime,
+    transportCalls = 0;
+  try {
+    const setup = offlineSetup(dir, async () => {
+      transportCalls++;
+      throw Error("synthetic transport failure");
+    });
+    adapter = setup.adapter;
+    store = setup.store;
+    store.createBound(adapter.snapshot("E", 1, ["R-03"]));
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    runtime.activate("offline-failure-sentinel");
+    await assert.rejects(runtime.execute("E"), /TURN_NOT_COMPLETED/);
+    const callsAfterFailure = transportCalls,
+      e = store.task("E");
+    assert.equal(e.state, "NEEDS_ATTENTION");
+    assert.equal(e.checkpoint.failureCode, "TURN_NOT_COMPLETED");
+    assert.equal(store.openRepairTaskId("E"), null);
+    assert.equal(store.activeChildTaskId("E"), null);
+    const environment = runtime
+      .status()
+      .environment.find((x) => x.taskId === "E");
+    assert.ok(!environment.allowedActions.includes("CREATE_REPAIR_TASK"));
+    assert.ok(!environment.allowedActions.includes("START_REPAIR"));
+    assert.deepEqual(
+      environment.allowedActions.filter((a) => a.endsWith("_TASK")),
+      ["ABANDON_TASK"],
+    );
+    await assert.rejects(runtime.execute("E"), /TASK_NOT_RESUMABLE/);
+    assert.equal(transportCalls, callsAfterFailure, "no automatic retry");
+    assert.equal(store.count(), callsAfterFailure);
+    assert.equal(store.snapshot().artifacts.length, 0);
+    await runtime.standDown();
   } finally {
     if (runtime) await runtime.close().catch(() => {});
     if (store) store.close();
@@ -762,8 +952,27 @@ test("HTTP repair loop: REQUEST_REVISION opens a Repair Task, the human starts i
     const again = await post("create-repair", { taskId: "E" });
     assert.equal(again.tasks.filter((t) => t.kind === "REPAIR").length, 1);
     assert.equal(again.tasks.find((t) => t.kind === "REPAIR").id, repair.id);
+    const exits = again.environment.find((e) => e.taskId === "E");
+    assert.equal(exits.startRepairTaskId, repair.id);
+    assert.ok(exits.allowedActions.includes("START_REPAIR"));
+    assert.ok(!exits.allowedActions.includes("CREATE_REPAIR_TASK"));
 
-    state = await post("resume", { taskId: repair.id });
+    // The parent cannot be abandoned while the opened repair stays startable.
+    const blocked = await fetch(base + "/api/abandon", {
+      method: "POST",
+      headers: { Origin: base, "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId: "E" }),
+    });
+    assert.equal(blocked.status, 409);
+    assert.equal((await blocked.json()).error, "ACTIVE_CHILD_TASK_EXISTS");
+    assert.equal(
+      (await get("/api/state")).tasks.find((t) => t.id === "E").state,
+      "NEEDS_ATTENTION",
+    );
+
+    // START_REPAIR starts the existing shell; it never creates a second task.
+    state = await post("start-repair", { taskId: "E" });
+    assert.equal(state.tasks.filter((t) => t.kind === "REPAIR").length, 1);
     const done = state.tasks.find((t) => t.id === repair.id);
     assert.equal(done.state, "MEMO_READY");
     assert.equal(state.budget.length, 6);
@@ -791,6 +1000,13 @@ test("HTTP repair loop: REQUEST_REVISION opens a Repair Task, the human starts i
     assert.equal(state.humanReviews.length, 0, "the gate stays closed");
     assert(!JSON.stringify(state).includes("offline-repair-http-sentinel"));
     assert.deepEqual(await get("/api/memory"), memoryBefore);
+    const closed = await fetch(base + "/api/start-repair", {
+      method: "POST",
+      headers: { Origin: base, "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId: "E" }),
+    });
+    assert.equal(closed.status, 409);
+    assert.equal((await closed.json()).error, "REPAIR_NOT_STARTABLE");
 
     state = await post("abandon", {
       taskId: "E",

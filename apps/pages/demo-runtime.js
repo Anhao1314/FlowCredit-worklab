@@ -116,8 +116,21 @@ export function createDemo({
     }
     if (name === "abandon") {
       const t = state.tasks.find((t) => t.id === body.taskId);
-      if (!t || t.state !== "NEEDS_ATTENTION")
+      if (
+        !t ||
+        (t.state !== "NEEDS_ATTENTION" &&
+          !(t.kind === "REPAIR" && t.state.endsWith("_PENDING")))
+      )
         throw Error("TASK_NOT_ABANDONABLE");
+      if (
+        state.tasks.some(
+          (x) =>
+            x.kind === "REPAIR" &&
+            x.lineage?.parentTaskId === t.id &&
+            !["MEMO_READY", "ABANDONED"].includes(x.state),
+        )
+      )
+        throw Error("ACTIVE_CHILD_TASK_EXISTS");
       t.checkpoint.reason = "ABANDONED_BY_HUMAN";
       change(t, "ABANDONED");
       event("TASK_ABANDONED", { task: t.id, simulated: true });
@@ -155,6 +168,23 @@ export function createDemo({
         event("REPAIR_TASK_CREATED", { task: id, parentTask: t.id });
       }
       return clone(state);
+    }
+    if (name === "start-repair") {
+      const t = state.tasks.find((t) => t.id === body.taskId),
+        child = t
+          ? state.tasks.find(
+              (x) =>
+                x.kind === "REPAIR" &&
+                x.lineage?.parentTaskId === t.id &&
+                !["MEMO_READY", "ABANDONED"].includes(x.state),
+            )
+          : null;
+      if (!child) throw Error("REPAIR_TASK_MISSING");
+      if (child.state !== "RESEARCH_PENDING")
+        throw Error("REPAIR_NOT_STARTABLE");
+      return request("/api/resume", {
+        body: JSON.stringify({ taskId: child.id }),
+      });
     }
     if (name !== "resume") throw Error("NOT_FOUND");
     if (!state.runtime.modelOnline) throw Error("MODEL_CAPABILITY_OFF");

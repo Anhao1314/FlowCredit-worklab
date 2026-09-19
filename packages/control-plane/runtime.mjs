@@ -173,24 +173,41 @@ export class Runtime {
           "REVIEW_PENDING",
           "MEMO_PENDING",
         ].includes(t.state);
-        const nativeNeed =
-          t.state === "RESEARCH_PENDING"
-            ? reviewer === "native-harness"
-              ? 3
-              : 2
-            : t.state === "REVIEW_PENDING" && reviewer === "native-harness"
-              ? 1
-              : 0;
-        const needsDelegation =
-          ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(t.state) &&
-          reviewer === "claude-code";
-        const budgetReady =
-          this.store.count() + nativeNeed <= 6 &&
-          (!needsDelegation || this.store.delegationCount() < 2);
+        const budgetReadyFor = (task) => {
+          const reviewerId = this.store.reviewer(task.id);
+          const nativeNeed =
+            task.state === "RESEARCH_PENDING"
+              ? reviewerId === "native-harness"
+                ? 3
+                : 2
+              : task.state === "REVIEW_PENDING" &&
+                  reviewerId === "native-harness"
+                ? 1
+                : 0;
+          const needsDelegation =
+            ["RESEARCH_PENDING", "REVIEW_PENDING"].includes(task.state) &&
+            reviewerId === "claude-code";
+          return (
+            this.store.count() + nativeNeed <= 6 &&
+            (!needsDelegation || this.store.delegationCount() < 2)
+          );
+        };
+        const budgetReady = budgetReadyFor(t);
         const reviewArtifact = t.checkpoint.review
             ? snapshot.artifacts.find((a) => a.id === t.checkpoint.review)
             : null,
           openRepairTaskId = this.store.openRepairTaskId(t.id),
+          openRepair = openRepairTaskId
+            ? this.store.task(openRepairTaskId)
+            : null,
+          // A Repair Task shell is startable only while it waits for a human.
+          startRepairTaskId =
+            openRepair?.state === "RESEARCH_PENDING" ? openRepair.id : null,
+          canStartRepair =
+            !!startRepairTaskId &&
+            !this.busy &&
+            this.credentials.hasPower() &&
+            budgetReadyFor(openRepair),
           canCreateRepair =
             t.state === "NEEDS_ATTENTION" &&
             !!t.checkpoint.research &&
@@ -204,6 +221,8 @@ export class Runtime {
           budgetReady,
           reviewProvider: reviewArtifact?.content.workProvider ?? null,
           repairTaskId: openRepairTaskId,
+          startRepairTaskId,
+          canStartRepair,
           canResume:
             !this.busy &&
             pending &&
@@ -224,8 +243,10 @@ export class Runtime {
             ...(t.checkpoint.research ? ["VIEW_ARTIFACT"] : []),
             ...(!this.credentials.hasPower() && pending ? ["ACTIVATE"] : []),
             ...(t.state === "MEMO_READY" ? ["HUMAN_REVIEW"] : []),
+            ...(startRepairTaskId ? ["START_REPAIR"] : []),
             ...(canCreateRepair ? ["CREATE_REPAIR_TASK"] : []),
-            ...(["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state)
+            ...(["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state) ||
+            (t.kind === "REPAIR" && t.state.endsWith("_PENDING"))
               ? ["ABANDON_TASK"]
               : []),
           ],
@@ -637,7 +658,7 @@ export class Runtime {
       );
       // A non-PASS review preserves the original Task, Artifact and Review and
       // opens an explicit Repair Task bound to the same Snapshot. It is never
-      // executed automatically: a human starts it.
+      // executed automatically: only an explicit human START_REPAIR starts it.
       if (content.decision === "REQUEST_REVISION")
         this.store.createRepairTask(id, { reviewArtifactId: v.id });
     });
