@@ -114,6 +114,78 @@ export function createDemo({
       event("TASK_BOUND", { task: id, revision: snapshot.baseRevisionId });
       return clone(state);
     }
+    if (name === "abandon") {
+      const t = state.tasks.find((t) => t.id === body.taskId);
+      if (
+        !t ||
+        (t.state !== "NEEDS_ATTENTION" &&
+          !(t.kind === "REPAIR" && t.state.endsWith("_PENDING")))
+      )
+        throw Error("TASK_NOT_ABANDONABLE");
+      if (
+        state.tasks.some(
+          (x) =>
+            x.kind === "REPAIR" &&
+            x.lineage?.parentTaskId === t.id &&
+            !["MEMO_READY", "ABANDONED"].includes(x.state),
+        )
+      )
+        throw Error("ACTIVE_CHILD_TASK_EXISTS");
+      t.checkpoint.reason = "ABANDONED_BY_HUMAN";
+      change(t, "ABANDONED");
+      event("TASK_ABANDONED", { task: t.id, simulated: true });
+      return clone(state);
+    }
+    if (name === "create-repair") {
+      const t = state.tasks.find((t) => t.id === body.taskId);
+      if (
+        !t ||
+        t.state !== "NEEDS_ATTENTION" ||
+        !t.checkpoint.research ||
+        !t.checkpoint.review
+      )
+        throw Error("REPAIR_NOT_ALLOWED");
+      const id = `demo-repair-${t.id}`;
+      if (!state.tasks.some((x) => x.id === id)) {
+        state.tasks.push({
+          id,
+          kind: "REPAIR",
+          state: "RESEARCH_PENDING",
+          context: { ...t.context },
+          checkpoint: {
+            nextAction: "Repair Researcher（演示）",
+            unresolvedIssues: [],
+          },
+          lineage: {
+            parentTaskId: t.id,
+            snapshotId: t.context.snapshotId,
+            inputArtifactId: t.checkpoint.research,
+            reviewArtifactId: t.checkpoint.review,
+            reason: "演示：按复核意见形成修复稿",
+            reviewDecision: "REQUEST_REVISION",
+          },
+        });
+        event("REPAIR_TASK_CREATED", { task: id, parentTask: t.id });
+      }
+      return clone(state);
+    }
+    if (name === "start-repair") {
+      const t = state.tasks.find((t) => t.id === body.taskId),
+        child = t
+          ? state.tasks.find(
+              (x) =>
+                x.kind === "REPAIR" &&
+                x.lineage?.parentTaskId === t.id &&
+                !["MEMO_READY", "ABANDONED"].includes(x.state),
+            )
+          : null;
+      if (!child) throw Error("REPAIR_TASK_MISSING");
+      if (child.state !== "RESEARCH_PENDING")
+        throw Error("REPAIR_NOT_STARTABLE");
+      return request("/api/resume", {
+        body: JSON.stringify({ taskId: child.id }),
+      });
+    }
     if (name !== "resume") throw Error("NOT_FOUND");
     if (!state.runtime.modelOnline) throw Error("MODEL_CAPABILITY_OFF");
     const t = state.tasks.find((t) => t.id === body.taskId);
@@ -122,7 +194,10 @@ export function createDemo({
     if (t.state !== "RESEARCH_PENDING") throw Error("TASK_NOT_RESUMABLE");
     if (state.budget.length + 3 > 6) throw Error("MODEL_BUDGET_EXHAUSTED");
     const token = generation,
-      snap = state.snapshots.find((s) => s.taskId === t.id);
+      snap = state.snapshots.find(
+        (s) =>
+          s.taskId === (t.kind === "REPAIR" ? t.lineage.parentTaskId : t.id),
+      );
     const check = () => {
       if (token !== generation || !state.runtime.modelOnline)
         throw Error("CANCELED");
@@ -167,6 +242,16 @@ export function createDemo({
       const research = artifact(t, "RESEARCH", {
         observations,
         unresolvedQuestions: ["新增客户预期能否兑现，尚需后续已接纳资料。"],
+        ...(t.kind === "REPAIR"
+          ? {
+              lineage: {
+                supersedesArtifactId: t.lineage.inputArtifactId,
+                parentTaskId: t.lineage.parentTaskId,
+                repairTaskId: t.id,
+                reviewArtifactId: t.lineage.reviewArtifactId,
+              },
+            }
+          : {}),
       });
       state.runs.push({
         task: t.id,

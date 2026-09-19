@@ -23,10 +23,11 @@ npm run local:start
 2. 创建 E，冻结 S1 / Claim v1 和四条资料。
 3. 在任务中选择 Reviewer：Harness 原生或 Claude Code 只读复核。首次 Reviewer 开始后策略锁定。
 4. 在激活页输入 DeepSeek Key，再主动开始研究。激活本身没有模型请求。
-5. Researcher 通过原生 Harness 读取固定资料；Reviewer 读取研究产物及实际引用摘录。只有平台校验通过且 Reviewer PASS，才组装 Candidate Memo。
-6. 可在已完成任务中显式发起新的对照复核。两种执行器消费同一产物与摘录，保留各自产物；不覆盖原 Memo 或检查点。
-7. “保留跟进 / 需要补充 / 暂不采用”记录你的处理意见。它们不是 Evidence Admission、Claim Revision 或正式 Human Apply。当前不自动创建补充任务。
-8. 停止协作会清除 Key、等待在途执行退出，并保留任务与产物。再次启动无 Key，浏览不需激活，已完成任务不再请求模型。
+5. Researcher 通过原生 Harness 读取固定资料；Reviewer 读取研究产物及实际引用摘录。Reviewer 的 `issues[].recordIds` 在服务端按任务快照校验，并且必须来自本次实际提供的 `sourceExcerpts`：越权引用（`REVIEW_RECORD_OUT_OF_SCOPE`）或引用授权范围内但未提供的原文（`REVIEW_RECORD_NOT_SUPPLIED`）都会让整份复核被拒绝，不会写入复核产物。只有平台校验通过且 Reviewer PASS，才组装 Candidate Memo。
+6. 可在已完成任务中显式发起对照复核。跨执行器对照要求复核执行器与原 Reviewer 不同；同一执行器只能显式命名为“重复复核”，或以 `REPEAT_REVIEW` 模式发起，产物会标为重复复核而不是跨执行器对照。
+7. Reviewer 要求修订（REQUEST_REVISION）时，平台保留原任务、原研究产物与原复核，零成本创建一个绑定同一固定快照的修复任务壳（记录 `snapshotId` / `snapshotOwnerId` / `contextDigest`，每次派发前重新校验）；它不会自动执行。你显式发起 `START_REPAIR` 后，新的 Researcher 运行产生带 `supersedesArtifactId` 谱系的新产物，修订稿再走同一 Reviewer 机制，PASS 后形成候选备忘并停在人工门。BLOCKED 或执行失败不会自动创建修复任务、也不会自动重试，只提供两个确定性出口：显式创建修复任务（存在非 PASS 复核时）或放弃任务；当存在未完成的子修复任务时，放弃原任务会被拒绝（`ACTIVE_CHILD_TASK_EXISTS`），需要先开始或放弃该修复任务。
+8. “保留跟进 / 需要补充 / 暂不采用”记录你的处理意见。它们不是 Evidence Admission、Claim Revision 或正式 Human Apply。
+9. 停止协作会清除 Key、等待在途执行退出，并保留任务、修复任务与产物。再次启动无 Key，浏览不需激活，已完成任务不再请求模型。
 
 ## 执行器与真实能力
 
@@ -53,7 +54,7 @@ SDK 的工具、MCP、项目配置继承和会话保存均关闭，使用独立�
 
 正常停止会关闭 SDK 并终止、等待自己拥有的进程组。进程被强制杀死时，远端费用及外部任务状态可能不确定；重启将未结束的 run / 委派标为 interrupted，不自动重试。不能把控制层重启解释为远端账单回滚或强制终止已经发出的远程推理。若 OS 强杀父 Runtime，外部孤儿进程回收尚不具备内核级保证；此版本使用 local:stop / Stand Down 管理生命周期。
 
-Comparison 失败不改变原任务 MEMO_READY；失败尝试仍计入对应预算。任务修订循环、失败重派、自由增加预算均未提供，避免隐式重复费用。需要正式长期研究工作流时应另行设计预算配置与任务管理，不能删除账本绕过限制。
+对照复核失败不改变原任务 MEMO_READY；失败尝试仍计入对应预算。修复循环为每个新运行单独记账：创建修复任务本身不消耗预算，恢复已提交的修复阶段不重复派发；START_REPAIR 在派发前检查预算，不足时以 `WORK_BUDGET_EXHAUSTED` 拒绝，不产生新请求或新产物；失败重派与自由增加预算仍未提供，避免隐式重复费用。需要正式长期研究工作流时应另行设计预算配置与任务管理，不能删除账本绕过限制。
 
 ## 本轮验证
 
@@ -64,5 +65,6 @@ Comparison 失败不改变原任务 MEMO_READY；失败尝试仍计入对应预�
 - Knowledge Plane 的 memory / links / admissions / admissionLinks / retrieval 指纹不变。
 - 离线测试包含真实 bundled Claude 进程对本地响应服务器的请求，校验 tools=[]、结构化返回、进程退出和凭据不落盘。
 - 浏览器验证包括离线阅读、执行器选择、对照复核、停止和页面错误检查。真实 Key 由用户本人在激活页输入。
+- M1.1 离线回归：START_REPAIR 只启动既有修复壳、`ACTIVE_CHILD_TASK_EXISTS` 阻止带未完成子修复任务的放弃、绑定字段篡改在派发前被拒绝（零模型传输）、预算不足在派发前被拒绝；无真实模型调用。
 
-本版继续按串行运行。未接 Codex、豆包、私人研究库、任意任务配置、自动驻场、What Changed 或正式 Human Apply；公开 Pages 保持无 Key、无网络模型调用的模拟演示。
+本版继续按串行运行。未接 Codex、豆包、私人研究库、任意任务配置、自动驻场、持续调度、Event Inbox、What Changed 或正式 Human Apply；公开 Pages 保持无 Key、无网络模型调用的模拟演示。

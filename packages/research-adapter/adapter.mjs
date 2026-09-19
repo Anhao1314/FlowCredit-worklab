@@ -263,7 +263,7 @@ export class ResearchAdapter {
     this.#db.close();
   }
 }
-export function validateSnapshot(snapshot, task) {
+export function validateSnapshot(snapshot, task, ownerTaskId = task.id) {
   if (!snapshot) throw Error("SNAPSHOT_MISSING");
   const { contentDigest, ...body } = snapshot;
   if (
@@ -272,7 +272,7 @@ export function validateSnapshot(snapshot, task) {
   )
     throw Error("SNAPSHOT_MISMATCH");
   if (
-    snapshot.taskId !== task.id ||
+    snapshot.taskId !== ownerTaskId ||
     snapshot.snapshotId !== task.context.snapshotId ||
     snapshot.baseRevisionId !== task.context.baseRevisionId ||
     snapshot.subjectId !== task.context.subjectId
@@ -280,8 +280,8 @@ export function validateSnapshot(snapshot, task) {
     throw Error("REVISION_BINDING_INVALID");
   return snapshot;
 }
-export function readAuthorized(snapshot, task, args) {
-  validateSnapshot(snapshot, task);
+export function readAuthorized(snapshot, task, args, ownerTaskId = task.id) {
+  validateSnapshot(snapshot, task, ownerTaskId);
   if (
     Object.keys(args).some((k) => k !== "recordIds") ||
     !Array.isArray(args.recordIds) ||

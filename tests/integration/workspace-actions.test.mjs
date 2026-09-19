@@ -65,12 +65,27 @@ test("HTTP provider selection, independent comparison and human disposition pres
       { taskId: "E", provider: "claude-code" },
       409,
     );
+    // Same-provider work must never be labelled as cross-provider comparison.
+    await post(
+      "compare-reviewer",
+      { taskId: "E", provider: "native-harness" },
+      409,
+    );
     s = await post("compare-reviewer", {
       taskId: "E",
       provider: "native-harness",
+      mode: "REPEAT_REVIEW",
     });
     assert.deepEqual(s.tasks[0].checkpoint, cp);
     assert.equal(s.budget.length, 4);
+    assert.equal(
+      s.artifacts.filter((a) => a.type === "REVIEW_REPEAT").length,
+      1,
+    );
+    assert.equal(
+      s.artifacts.filter((a) => a.type === "REVIEW_COMPARISON").length,
+      0,
+    );
     s = await post("human-review", {
       taskId: "E",
       decision: "NEEDS_WORK",

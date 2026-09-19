@@ -121,7 +121,9 @@ function render() {
             );
             const selectedProvider = environment?.reviewer ?? "native-harness";
             const comparisons = state.artifacts.filter(
-              (a) => a.taskId === t.id && a.type === "REVIEW_COMPARISON",
+              (a) =>
+                a.taskId === t.id &&
+                ["REVIEW_COMPARISON", "REVIEW_REPEAT"].includes(a.type),
             );
             const human = (state.humanReviews ?? []).filter(
               (h) => h.task === t.id,
@@ -132,7 +134,7 @@ function render() {
               review = artifact("review"),
               memo = artifact("memo"),
               output = memo || research;
-            return `<article class="task" id="task-${t.id}"><div class="task-head"><b>任务 ${t.id} · 固定 v${t.context.claim.version}</b><span class="pill">${esc(t.label)}</span></div><h2>“${esc(t.context.claim.text)}”</h2><p class="subtle">${esc(t.context.snapshotId)} · 截止 ${esc(t.context.asOf.slice(0, 10))} · 授权 ${snap.records.map((r) => esc(r.label)).join(" / ")}</p>${
+            return `<article class="task" id="task-${t.id}"><div class="task-head"><b>${t.kind === "REPAIR" ? `修复任务 ${t.id} · 由来任务 ${t.lineage.parentTaskId}` : `任务 ${t.id}`} · 固定 v${t.context.claim.version}</b><span class="pill">${esc(t.label)}</span></div><h2>“${esc(t.context.claim.text)}”</h2><p class="subtle">${esc(t.context.snapshotId)} · 截止 ${esc(t.context.asOf.slice(0, 10))} · 授权 ${snap.records.map((r) => esc(r.label)).join(" / ")}</p>${
               environment
                 ? `<div class="provider-choice"><label for="reviewer-${t.id}">独立复核执行器</label> <select id="reviewer-${t.id}" data-reviewer="${t.id}" ${locked || !environment.canSelectReviewer ? "disabled" : ""}>${state.providers
                     .filter((p) => p.roles.includes("Reviewer"))
@@ -144,24 +146,24 @@ function render() {
                       "",
                     )}</select><p class="subtle">${selectedProvider === "claude-code" ? "复核消耗一次外部委派；内部模型请求与费用未知。" : "复核最多一次原生模型请求。"} 首次复核开始后选择锁定。</p></div>`
                 : ""
-            }<ol class="pipeline"><li class="done">固定目标与授权</li><li class="${research ? "done" : t.state === "RESEARCH_RUNNING" ? "active" : ""}">Researcher · ${research ? "已交付" : t.state === "RESEARCH_RUNNING" ? "研究中" : "待执行"}</li><li class="${review ? "done" : t.state === "REVIEW_RUNNING" ? "active" : ""}">Reviewer · ${review ? "已交付" : t.state === "REVIEW_RUNNING" ? "复核中" : "待执行"}</li><li class="${memo ? "done" : ""}">候选备忘 · ${memo ? "就绪" : "未形成"}</li></ol><p>${esc(t.explanation)}</p>${t.state.endsWith("_PENDING") ? `<button class="primary resume" data-task="${t.id}" ${locked || !t.canResume ? "disabled" : ""}>${t.state === "RESEARCH_PENDING" ? "开始研究" : "继续未完成阶段"}</button>${!state.runtime.modelOnline ? " <button data-power>提供临时 Key</button>" : ""}` : ""}
+            }<ol class="pipeline"><li class="done">固定目标与授权</li><li class="${research ? "done" : t.state === "RESEARCH_RUNNING" ? "active" : ""}">Researcher · ${research ? "已交付" : t.state === "RESEARCH_RUNNING" ? "研究中" : "待执行"}</li><li class="${review ? "done" : t.state === "REVIEW_RUNNING" ? "active" : ""}">Reviewer · ${review ? "已交付" : t.state === "REVIEW_RUNNING" ? "复核中" : "待执行"}</li><li class="${memo ? "done" : ""}">候选备忘 · ${memo ? "就绪" : "未形成"}</li></ol><p>${esc(t.explanation)}</p>${t.state.endsWith("_PENDING") ? `<button class="primary resume" data-task="${t.id}" ${locked || !t.canResume ? "disabled" : ""}>${t.kind === "REPAIR" ? (t.state === "RESEARCH_PENDING" ? "开始修复" : "继续修复") : t.state === "RESEARCH_PENDING" ? "开始研究" : "继续未完成阶段"}</button>${!state.runtime.modelOnline ? " <button data-power>提供临时 Key</button>" : ""}` : ""}${["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state) || (t.kind === "REPAIR" && t.state.endsWith("_PENDING")) ? `<div class="task-exits">${t.repairTaskId ? `<p class="subtle">已创建修复任务 ${esc(t.repairTaskId)}；它不会自动执行，需要你显式发起 START_REPAIR。</p>` : ""}${t.allowedActions.includes("START_REPAIR") ? `<button data-start-repair="${t.id}" ${locked || !t.canStartRepair ? "disabled" : ""}>开始修复（START_REPAIR）</button>` : ""}${t.allowedActions.includes("CREATE_REPAIR_TASK") ? `<button data-create-repair="${t.id}" ${locked ? "disabled" : ""}>创建修复任务</button>` : ""}${t.allowedActions.includes("ABANDON_TASK") ? `<button data-abandon="${t.id}" ${locked ? "disabled" : ""}>放弃任务</button>` : ""}</div>` : ""}
     ${output ? `<section class="candidate-output"><h3>${memo ? "候选研究备忘" : "研究候选 · 尚未形成最终备忘"}</h3><p class="subtle">尚未经人工接纳 · 不改变正式研究记录</p>${output.content.observations.map((o) => `<div class="observation"><p>${esc(o.observation)}</p><div class="refs">${o.citations.map((id) => `<a href="#${t.id}-${esc(id)}" data-source>${esc(snap.records.find((r) => r.id === id)?.label || id)} 查看依据</a>`).join("")}</div><ul class="subtle">${list(o.limitations)}</ul></div>`).join("")}</section>` : '<p class="empty">尚无候选发现。执行者需要先实际读取授权原文。</p>'}
     ${review ? `<section class="review"><h3>独立复核 · ${esc(review.content.decision)}</h3><p class="subtle">模型 Reviewer 的判断，不是人工批准。</p><ul>${list(review.content.issues.map((i) => i.detail))}</ul><ul class="subtle">${list(review.content.reviewLimitations)}</ul></section>` : ""}
     ${t.checkpoint.unresolvedIssues?.length ? `<section class="review"><h3>仍待确认</h3><ul>${list(t.checkpoint.unresolvedIssues)}</ul></section>` : ""}
     ${
       memo && environment
-        ? `<section class="review"><h3>你的处理意见</h3><p class="subtle">只记录候选备忘的处理意见，不接纳证据、不修订观点。</p><form data-human="${t.id}"><label for="decision-${t.id}">处理方式</label> <select id="decision-${t.id}" name="decision"><option value="FOLLOW_UP">保留，继续跟进</option><option value="NEEDS_WORK">需要补充研究</option><option value="DISMISS">暂不采用</option></select><label for="note-${t.id}">备注</label><textarea id="note-${t.id}" name="note" maxlength="2000" rows="2" placeholder="记录需要跟进的理由"></textarea><button ${locked ? "disabled" : ""}>保存处理意见</button></form>${human.map((h) => `<p>${esc({ FOLLOW_UP: "保留跟进", NEEDS_WORK: "需要补充", DISMISS: "暂不采用" }[h.decision])} · ${esc(h.note)} <span class="subtle">${esc(new Date(h.created).toLocaleString("zh-CN"))}</span></p>`).join("")}</section><details data-disclosure="${t.id}-compare"><summary>用另一执行器做独立对照复核</summary><p>这是一次新的付费执行，只读取相同研究产物与固定摘录；不会覆盖原备忘或原复核。</p>${state.providers
+        ? `<section class="review"><h3>你的处理意见</h3><p class="subtle">只记录候选备忘的处理意见，不接纳证据、不修订观点。</p><form data-human="${t.id}"><label for="decision-${t.id}">处理方式</label> <select id="decision-${t.id}" name="decision"><option value="FOLLOW_UP">保留，继续跟进</option><option value="NEEDS_WORK">需要补充研究</option><option value="DISMISS">暂不采用</option></select><label for="note-${t.id}">备注</label><textarea id="note-${t.id}" name="note" maxlength="2000" rows="2" placeholder="记录需要跟进的理由"></textarea><button ${locked ? "disabled" : ""}>保存处理意见</button></form>${human.map((h) => `<p>${esc({ FOLLOW_UP: "保留跟进", NEEDS_WORK: "需要补充", DISMISS: "暂不采用" }[h.decision])} · ${esc(h.note)} <span class="subtle">${esc(new Date(h.created).toLocaleString("zh-CN"))}</span></p>`).join("")}</section><details data-disclosure="${t.id}-compare"><summary>独立对照复核 / 同一执行器重复复核</summary><p>跨执行器对照是一次新的付费复核，只读取相同研究产物与固定摘录；同一执行器的再复核会被明确标为重复复核，不会伪装成跨执行器对照。两者都不会覆盖原备忘或原复核。</p>${state.providers
             .filter((p) => p.roles.includes("Reviewer"))
             .map(
               (p) =>
-                `<button data-compare="${t.id}" data-provider="${p.id}" ${locked || !environment.canCompare || (p.id === "native-harness" ? state.budget.length >= state.runtime.requestLimit : state.delegations.length >= state.runtime.delegationLimit) ? "disabled" : ""}>使用 ${esc(p.name)} 对照复核</button>`,
+                `<button data-compare="${t.id}" data-provider="${p.id}" data-mode="${p.id === t.reviewProvider ? "REPEAT_REVIEW" : "CROSS_PROVIDER"}" ${locked || !environment.canCompare || (p.id === "native-harness" ? state.budget.length >= state.runtime.requestLimit : state.delegations.length >= state.runtime.delegationLimit) ? "disabled" : ""}>${p.id === t.reviewProvider ? `使用 ${esc(p.name)} 重复复核（同一执行器）` : `使用 ${esc(p.name)} 对照复核（跨执行器）`}</button>`,
             )
             .join(
               " ",
-            )}${comparisons.map((a) => `<div class="review"><b>${esc(a.content.workProvider)} · ${esc(a.content.decision)}</b><ul>${list(a.content.issues.map((i) => i.detail))}</ul><ul class="subtle">${list(a.content.reviewLimitations)}</ul><details><summary>产物绑定</summary><pre>${esc(JSON.stringify({ id: a.id, research: a.content.reviewedArtifactId, digest: a.content.consumedResearchDigest }, null, 2))}</pre></details></div>`).join("")}</details>`
+            )}${comparisons.map((a) => `<div class="review"><b>${a.type === "REVIEW_REPEAT" ? "重复复核 · " : "跨执行器对照 · "}${esc(a.content.workProvider)} · ${esc(a.content.decision)}</b><ul>${list(a.content.issues.map((i) => i.detail))}</ul><ul class="subtle">${list(a.content.reviewLimitations)}</ul><details><summary>产物绑定</summary><pre>${esc(JSON.stringify({ id: a.id, research: a.content.reviewedArtifactId, digest: a.content.consumedResearchDigest }, null, 2))}</pre></details></div>`).join("")}</details>`
         : ""
     }
-    <details data-disclosure="${t.id}-sources"><summary>固定版本的授权资料与来源</summary>${snap.records.map((r) => source(r, t.id)).join("")}</details><details data-disclosure="${t.id}-binding"><summary>任务绑定与持久检查点</summary><pre>${esc(JSON.stringify({ snapshotId: snap.snapshotId, baseRevisionId: snap.baseRevisionId, digest: snap.contentDigest, checkpoint: t.checkpoint }, null, 2))}</pre></details></article>`;
+    <details data-disclosure="${t.id}-sources"><summary>固定版本的授权资料与来源</summary>${snap.records.map((r) => source(r, t.id)).join("")}</details><details data-disclosure="${t.id}-binding"><summary>任务绑定与持久检查点</summary><pre>${esc(JSON.stringify({ kind: t.kind, lineage: t.lineage ?? null, snapshotId: snap.snapshotId, baseRevisionId: snap.baseRevisionId, digest: snap.contentDigest, checkpoint: t.checkpoint }, null, 2))}</pre></details></article>`;
           })
           .join("")
       : '<div class="empty"><h2>从现有观点创建第一项任务</h2><p>创建会固定 v1 与四条资料，不会调用模型。R-04 始终是未接纳候选材料。</p></div>',
@@ -172,6 +174,12 @@ function render() {
     EXTERNAL_DELEGATION_STARTED: "外部复核已委派",
     EXTERNAL_DELEGATION_RELEASED: "外部复核进程已结束",
     REVIEW_COMPARISON_COMPLETED: "对照复核已保存",
+    REPEAT_REVIEW_COMPLETED: "重复复核已保存",
+    REPAIR_TASK_CREATED: "已创建修复任务",
+    REPAIR_RESEARCH_COMMITTED: "修复稿已提交为新产物",
+    TASK_ABANDONED: "任务已由人工放弃",
+    RESEARCH_MEMORY_CHANGED: "研究记忆完整性告警",
+    EXECUTOR_RELEASE_FAILED: "执行释放失败（根因已保留）",
     HUMAN_REVIEW_RECORDED: "人工处理意见已保存",
     CAPABILITY_ACTIVATED: "临时能力已激活",
     TASK_BOUND: "任务范围已固定",
@@ -225,6 +233,23 @@ const errors = {
   MODEL_CAPABILITY_OFF: "临时模型能力已关闭，请重新激活。",
   MODEL_BUDGET_EXHAUSTED: "请求预算已用完，已停止派发。",
   TASK_NOT_RESUMABLE: "此任务需要人工检查，不能自动重试。",
+  REVIEW_RECORD_OUT_OF_SCOPE:
+    "复核引用了授权范围外的记录，整份复核被拒绝，未写入任何产物。",
+  REVIEW_RECORD_NOT_SUPPLIED:
+    "复核引用了本次未提供的原文，整份复核被拒绝，未写入任何产物。",
+  COMPARISON_PROVIDER_MUST_DIFFER:
+    "同一执行器不能标为跨执行器对照；请改用重复复核。",
+  REPEAT_REVIEW_REQUIRES_ORIGINAL_PROVIDER:
+    "重复复核必须使用原复核执行器。",
+  REPAIR_NOT_ALLOWED: "当前任务状态不能创建修复任务。",
+  REPAIR_REQUIRES_REVIEW: "创建修复任务需要一份非 PASS 的复核产物。",
+  REPAIR_REQUIRES_RESEARCH_ARTIFACT: "没有可修复的研究产物，只能放弃任务。",
+  REPAIR_BINDING: "修复绑定校验失败，操作已停止。",
+  REPAIR_TASK_MISSING: "没有可开始的修复任务；请先显式创建修复任务。",
+  REPAIR_NOT_STARTABLE: "修复任务当前状态不能开始。",
+  ACTIVE_CHILD_TASK_EXISTS:
+    "存在未完成的修复任务；请先完成或放弃它，再处理原任务。",
+  TASK_NOT_ABANDONABLE: "当前任务状态不能放弃。",
   CANCELED: "执行已停止，未完成结果不会作为成功备忘。",
   BUSY: "已有任务正在执行，请等待或停止协作。",
   KEY_REQUIRED: "请输入有效的非空 Key。",
@@ -242,12 +267,11 @@ async function act(name, body = {}) {
     $("ignition-detail").textContent = "等待后端确认临时能力";
   }
   if (name === "stand-down") scene.cancel();
-  $("notice").textContent =
-    name === "resume"
-      ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
-      : name === "activate"
-        ? "正在提供临时能力…"
-        : "正在保存状态…";
+  $("notice").textContent = ["resume", "start-repair"].includes(name)
+    ? "研究已派发；可在任务中查看进度，也可随时停止协作。"
+    : name === "activate"
+      ? "正在提供临时能力…"
+      : "正在保存状态…";
   if (name === "activate") $("activation-status").textContent = "正在激活…";
   render();
   try {
@@ -275,7 +299,13 @@ async function act(name, body = {}) {
             ? "协作已停止，Key 已清除。研究状态已保留。"
             : name === "test-v2"
               ? "合成库已新增 v2；已有任务保持原版本。"
-              : "状态已保存。";
+              : name === "create-repair"
+                ? "已创建修复任务；请显式发起 START_REPAIR 才会执行。"
+                : name === "start-repair"
+                  ? "修复任务已开始；它保持原快照，可随时停止协作。"
+                  : name === "abandon"
+                    ? "任务已放弃；已有产物保留，不会自动重试。"
+                    : "状态已保存。";
       if (name === "activate") {
         $("power-panel").close();
         activating = false;
@@ -426,7 +456,15 @@ document.addEventListener("click", (e) => {
     act("compare-reviewer", {
       taskId: comparison.dataset.compare,
       provider: comparison.dataset.provider,
+      mode: comparison.dataset.mode,
     });
+  const repair = e.target.closest("[data-create-repair]");
+  if (repair) act("create-repair", { taskId: repair.dataset.createRepair });
+  const startRepair = e.target.closest("[data-start-repair]");
+  if (startRepair)
+    act("start-repair", { taskId: startRepair.dataset.startRepair });
+  const abandon = e.target.closest("[data-abandon]");
+  if (abandon) act("abandon", { taskId: abandon.dataset.abandon });
   const b = e.target.closest(".resume");
   if (b) act("resume", { taskId: b.dataset.task });
   if (e.target.closest("[data-power]")) openIgnition();

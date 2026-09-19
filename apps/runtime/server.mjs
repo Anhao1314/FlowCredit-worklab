@@ -40,6 +40,39 @@ const save = async (name, value) => {
     JSON.stringify(value, null, 2),
   );
 };
+// The Knowledge Plane must stay untouched by agent work. The check never
+// replaces the real execution error: both the root cause and the memory-change
+// condition are reported and recorded distinctly.
+const guardMemory = async (name, run) => {
+  const before = adapter.fingerprints();
+  await save(`memory-before-${name}`, before);
+  let primary = null;
+  try {
+    await run();
+  } catch (e) {
+    primary = e;
+  }
+  const after = adapter.fingerprints();
+  const unchanged = JSON.stringify(before) === JSON.stringify(after);
+  await save(`memory-after-${name}`, {
+    ...after,
+    unchanged,
+    agentResearchMemoryWrites: unchanged ? 0 : null,
+    primaryError: primary ? (primary.failureCode ?? primary.message) : null,
+  });
+  if (!unchanged) {
+    store.event("RESEARCH_MEMORY_CHANGED", {
+      operation: name,
+      primaryError: primary ? primary.message : null,
+    });
+    if (!primary) throw Error("RESEARCH_MEMORY_CHANGED");
+    try {
+      primary.also ??= [];
+      primary.also.push("RESEARCH_MEMORY_CHANGED");
+    } catch {}
+  }
+  if (primary) throw primary;
+};
 const server = createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -143,14 +176,9 @@ const server = createServer(async (req, res) => {
         store.setReviewer(body.taskId, body.provider);
         return send(200, status());
       case "/api/compare-reviewer": {
-        const before = adapter.fingerprints();
-        try {
-          await runtime.compare(body.taskId, body.provider);
-        } finally {
-          const unchanged =
-            JSON.stringify(before) === JSON.stringify(adapter.fingerprints());
-          if (!unchanged) throw Error("RESEARCH_MEMORY_CHANGED");
-        }
+        await guardMemory(body.taskId, () =>
+          runtime.compare(body.taskId, body.provider, body.mode),
+        );
         return send(200, status());
       }
       case "/api/human-review":
@@ -178,23 +206,37 @@ const server = createServer(async (req, res) => {
         store.createBound(adapter.snapshot("F", 2, ["R-01", "R-02", "R-03"]));
         return send(200, status());
       case "/api/resume": {
-        if (!["E", "F"].includes(body.taskId)) throw Error("INVALID_TASK");
-        const before = adapter.fingerprints();
-        await save(`memory-before-${body.taskId}`, before);
-        try {
-          await runtime.execute(body.taskId);
-        } finally {
-          const after = adapter.fingerprints();
-          const unchanged = JSON.stringify(before) === JSON.stringify(after);
-          await save(`memory-after-${body.taskId}`, {
-            ...after,
-            unchanged,
-            agentResearchMemoryWrites: unchanged ? 0 : null,
-          });
-          if (!unchanged) throw Error("RESEARCH_MEMORY_CHANGED");
-        }
+        if (!store.task(body.taskId)) throw Error("INVALID_TASK");
+        await guardMemory(body.taskId, () => runtime.execute(body.taskId));
         return send(200, status());
       }
+      case "/api/start-repair": {
+        // Public action for an already-created Repair Task shell: the human
+        // starts the child that REQUEST_REVISION (or an explicit creation)
+        // left waiting. It never creates a second task and never cascades.
+        if (!store.task(body.taskId)) throw Error("INVALID_TASK");
+        const repairId = store.openRepairTaskId(body.taskId);
+        if (!repairId) throw Error("REPAIR_TASK_MISSING");
+        if (store.task(repairId).state !== "RESEARCH_PENDING")
+          throw Error("REPAIR_NOT_STARTABLE");
+        await guardMemory(repairId, () => runtime.execute(repairId));
+        return send(200, status());
+      }
+      case "/api/create-repair":
+        if (runtime.busy) throw Error("BUSY");
+        if (runtime.credentials.contains(JSON.stringify(body)))
+          throw Error("SECRET_IN_OUTPUT");
+        store.createRepairTask(body.taskId, {
+          reviewArtifactId: body.reviewArtifactId,
+          reason: body.reason,
+        });
+        return send(200, status());
+      case "/api/abandon":
+        if (runtime.busy) throw Error("BUSY");
+        if (runtime.credentials.contains(JSON.stringify(body)))
+          throw Error("SECRET_IN_OUTPUT");
+        store.abandon(body.taskId, body.note);
+        return send(200, status());
       case "/api/stand-down":
         await runtime.standDown();
         return send(200, status());
@@ -206,6 +248,7 @@ const server = createServer(async (req, res) => {
   } catch (e) {
     return send(409, {
       error: /^[A-Z_]+$/.test(e.message) ? e.message : "OPERATION_FAILED",
+      ...(e.also ? { also: e.also } : {}),
     });
   }
 });
