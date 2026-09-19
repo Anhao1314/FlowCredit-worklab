@@ -11,7 +11,7 @@ export class Store {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
  CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY, task TEXT UNIQUE, content TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS duty(id TEXT PRIMARY KEY, body TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, context TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, checkpoint TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, context TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, checkpoint TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'RESEARCH', lineage TEXT);
  CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, task TEXT, role TEXT, session TEXT, boot TEXT, state TEXT, summary TEXT);
  CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task TEXT, producer TEXT, type TEXT, created TEXT, content TEXT, digest TEXT);
  CREATE TABLE IF NOT EXISTS budget(id INTEGER PRIMARY KEY, run TEXT, state TEXT, detail TEXT);
@@ -21,6 +21,16 @@ export class Store {
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, created TEXT, kind TEXT, detail TEXT);
 
  CREATE TRIGGER IF NOT EXISTS immutable_context BEFORE UPDATE OF context,digest ON tasks BEGIN SELECT RAISE(ABORT,'CONTEXT_FROZEN'); END;`);
+    const taskColumns = this.db
+      .prepare("PRAGMA table_info(tasks)")
+      .all()
+      .map((c) => c.name);
+    if (!taskColumns.includes("kind"))
+      this.db.exec(
+        "ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'RESEARCH'",
+      );
+    if (!taskColumns.includes("lineage"))
+      this.db.exec("ALTER TABLE tasks ADD COLUMN lineage TEXT");
     if (!this.db.prepare("SELECT id FROM duty").get())
       this.db.prepare("INSERT INTO duty VALUES(?,?)").run(
         "northstar",
@@ -74,6 +84,8 @@ export class Store {
           digest: t.digest,
           state: t.state,
           checkpoint: JSON.parse(t.checkpoint),
+          kind: t.kind ?? "RESEARCH",
+          lineage: t.lineage ? JSON.parse(t.lineage) : null,
         }
       : null;
   }
@@ -103,7 +115,7 @@ export class Store {
       this.db
         .prepare("INSERT INTO snapshots VALUES(?,?,?)")
         .run(snapshot.snapshotId, snapshot.taskId, JSON.stringify(snapshot));
-      this.db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?)").run(
+      this.db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?)").run(
         snapshot.taskId,
         JSON.stringify(context),
         hash(context),
@@ -113,6 +125,8 @@ export class Store {
           nextAction: "Researcher",
           unresolvedIssues: [],
         }),
+        "RESEARCH",
+        null,
       );
       this.dutyUpdate({
         currentTask: snapshot.taskId,
@@ -127,13 +141,23 @@ export class Store {
     });
     return this.task(snapshot.taskId);
   }
+  snapshotOwner(id) {
+    const t = this.task(id);
+    if (!t) throw Error("TASK_MISSING");
+    return t.kind === "REPAIR"
+      ? (t.lineage?.snapshotOwnerId ?? t.lineage?.parentTaskId)
+      : id;
+  }
   bound(id) {
     const t = this.task(id);
     if (!t) throw Error("TASK_MISSING");
+    // A Repair Task never owns a Snapshot of its own: it can only resolve the
+    // exact Snapshot of its chain root, so the context cannot silently expand.
+    const owner = this.snapshotOwner(id);
     const row = this.db
-      .prepare("SELECT content FROM snapshots WHERE id=? AND task=?")
-      .get(t.context.snapshotId, id);
-    return validateSnapshot(row ? JSON.parse(row.content) : null, t);
+      .prepare("SELECT content FROM snapshots WHERE task=?")
+      .get(owner);
+    return validateSnapshot(row ? JSON.parse(row.content) : null, t, owner);
   }
   artifact(id) {
     const a = this.db.prepare("SELECT * FROM artifacts WHERE id=?").get(id);
@@ -190,6 +214,146 @@ export class Store {
     )
       throw Error("ARTIFACT_MISSING");
     return t;
+  }
+  repairTaskFor(parentId, reviewArtifactId) {
+    for (const { id } of this.db
+      .prepare("SELECT id FROM tasks WHERE kind='REPAIR' ORDER BY id")
+      .all()) {
+      const t = this.task(id);
+      if (
+        t.lineage.parentTaskId === parentId &&
+        t.lineage.reviewArtifactId === reviewArtifactId
+      )
+        return t;
+    }
+    return null;
+  }
+  openRepairTaskId(parentId) {
+    for (const { id } of this.db
+      .prepare("SELECT id FROM tasks WHERE kind='REPAIR' ORDER BY id")
+      .all()) {
+      const t = this.task(id);
+      if (t.lineage.parentTaskId === parentId && t.state !== "ABANDONED")
+        return id;
+    }
+    return null;
+  }
+  createRepairTask(parentId, { reviewArtifactId, reason } = {}) {
+    const parent = this.task(parentId);
+    if (!parent) throw Error("TASK_MISSING");
+    // Only a human-facing non-PASS outcome opens a repair; PASS never does.
+    if (parent.state !== "NEEDS_ATTENTION") throw Error("REPAIR_NOT_ALLOWED");
+    const research = parent.checkpoint.research
+      ? this.artifact(parent.checkpoint.research)
+      : null;
+    if (!research) throw Error("REPAIR_REQUIRES_RESEARCH_ARTIFACT");
+    const reviewId = reviewArtifactId ?? parent.checkpoint.review;
+    const review = reviewId ? this.artifact(reviewId) : null;
+    if (
+      !review ||
+      review.taskId !== parentId ||
+      review.type !== "REVIEW" ||
+      review.content.decision === "PASS"
+    )
+      throw Error("REPAIR_REQUIRES_REVIEW");
+    if (review.content.reviewedArtifactId !== research.id)
+      throw Error("REPAIR_BINDING");
+    const existing = this.repairTaskFor(parentId, review.id);
+    if (existing) return existing;
+    if (reason !== undefined && typeof reason !== "string")
+      throw Error("INVALID_REPAIR_REASON");
+    const blocking = review.content.issues
+      .filter((i) => i.severity === "blocking")
+      .map((i) => i.detail)
+      .filter(Boolean);
+    const explicit = (reason ?? "").trim();
+    const finalReason = (
+      explicit ||
+      [blocking.join("；"), review.content.requestedCorrections.join("；")]
+        .filter(Boolean)
+        .join(" | ") ||
+      `复核决定 ${review.content.decision}`
+    ).slice(0, 500);
+    const id = uuid("repair"),
+      snapshotOwnerId = this.snapshotOwner(parentId),
+      lineage = {
+        parentTaskId: parentId,
+        snapshotId: parent.context.snapshotId,
+        inputArtifactId: research.id,
+        reviewArtifactId: review.id,
+        reason: finalReason,
+        reviewDecision: review.content.decision,
+        snapshotOwnerId,
+      },
+      context = {
+        taskId: id,
+        dutyId: parent.context.dutyId,
+        subjectId: parent.context.subjectId,
+        claimId: parent.context.claimId,
+        baseRevisionId: parent.context.baseRevisionId,
+        claim: parent.context.claim,
+        snapshotId: parent.context.snapshotId,
+        snapshotDigest: parent.context.snapshotDigest,
+        scope: parent.context.scope,
+        authorizedRecordIds: parent.context.authorizedRecordIds,
+        asOf: parent.context.asOf,
+        kind: "REPAIR",
+        parentTaskId: parentId,
+        inputArtifactId: research.id,
+        reviewArtifactId: review.id,
+        reason: finalReason,
+      };
+    this.tx(() => {
+      this.db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?)").run(
+        id,
+        JSON.stringify(context),
+        hash(context),
+        "RESEARCH_PENDING",
+        JSON.stringify({
+          lastCompleted: "REVISION_REQUESTED",
+          nextAction: "Repair Researcher",
+          unresolvedIssues: [
+            ...blocking,
+            ...review.content.requestedCorrections,
+          ],
+        }),
+        "REPAIR",
+        JSON.stringify(lineage),
+      );
+      this.event("REPAIR_TASK_CREATED", {
+        task: id,
+        parentTask: parentId,
+        snapshot: parent.context.snapshotId,
+        inputArtifact: research.id,
+        reviewArtifact: review.id,
+        reason: finalReason,
+        authoritativeWrite: false,
+      });
+    });
+    return this.task(id);
+  }
+  abandon(id, note = "") {
+    const t = this.task(id);
+    if (!t) throw Error("TASK_MISSING");
+    if (!["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state))
+      throw Error("TASK_NOT_ABANDONABLE");
+    if (typeof note !== "string" || note.length > 2000)
+      throw Error("INVALID_HUMAN_NOTE");
+    if (/sk-[A-Za-z0-9]{20,}/.test(note)) throw Error("SECRET_IN_OUTPUT");
+    this.tx(() => {
+      this.state(id, "ABANDONED", {
+        ...t.checkpoint,
+        reason: "ABANDONED_BY_HUMAN",
+        nextAction: "已由人工放弃；产物保留，不自动重试",
+        abandonedNote: note,
+      });
+      this.event("TASK_ABANDONED", {
+        task: id,
+        budgetIncrease: 0,
+        authoritativeWrite: false,
+      });
+    });
+    return this.task(id);
   }
   recover() {
     for (const { id } of this.db.prepare("SELECT id FROM tasks").all()) {

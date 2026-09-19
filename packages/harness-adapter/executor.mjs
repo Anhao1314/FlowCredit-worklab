@@ -26,7 +26,9 @@ export class HarnessSubagentExecutor {
       model: "deepseek-v4-flash",
       maxTokens: 2600,
     };
-    let parent, child, unregister;
+    let parent, child, unregister, outcome;
+    let failure = null;
+    let releaseFailure = null;
     const start = Date.now();
     const timer = setTimeout(() => execution.controller.abort(), 65000);
     try {
@@ -149,7 +151,7 @@ export class HarnessSubagentExecutor {
         ...lineage,
         stopReason: result.stopReason,
       });
-      return {
+      outcome = {
         raw: result.output
           .filter((b) => b.type === "text")
           .map((b) => b.text)
@@ -157,6 +159,9 @@ export class HarnessSubagentExecutor {
         toolReads: execution.reads,
         receipt,
       };
+    } catch (error) {
+      failure = error;
+      throw error;
     } finally {
       clearTimeout(timer);
       // Teardown is attempted for every owned resource even if an earlier release fails.
@@ -175,9 +180,37 @@ export class HarnessSubagentExecutor {
           failures.push(error);
         }
       }
-      unregister?.();
+      try {
+        unregister?.();
+      } catch (error) {
+        failures.push(error);
+      }
       this.active = null;
-      if (failures.length) throw Error("EXECUTOR_RELEASE_FAILED");
+      if (failures.length) {
+        // A release failure must not replace the real execution error. When the
+        // run already failed, keep the root cause and record the teardown issue
+        // separately; otherwise surface it as a soft failure the runtime must
+        // not report as a successful run.
+        if (failure) {
+          try {
+            failure.releaseFailure ??= "EXECUTOR_RELEASE_FAILED";
+          } catch {}
+          this.event("EXECUTOR_RELEASE_FAILED", {
+            role,
+            taskId: task.id,
+            rootCause: failure.message,
+          });
+        } else releaseFailure = "EXECUTOR_RELEASE_FAILED";
+      }
     }
+    if (releaseFailure) {
+      this.event("EXECUTOR_RELEASE_FAILED", {
+        role,
+        taskId: task.id,
+        rootCause: null,
+      });
+      return { ...outcome, releaseFailure };
+    }
+    return outcome;
   }
 }

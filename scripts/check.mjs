@@ -11,6 +11,7 @@ async function walk(dir) {
       e.name === ".git" ||
       e.name === ".deps" ||
       e.name === ".pages" ||
+      e.name.startsWith(".peridot") ||
       e.name.startsWith(".runtime") ||
       e.name.startsWith(".test-") ||
       e.name.startsWith(".negative-")

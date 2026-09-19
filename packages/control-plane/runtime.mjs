@@ -29,6 +29,7 @@ import {
   validateReview,
   RESEARCH_INSTRUCTIONS,
   REVIEW_INSTRUCTIONS,
+  REPAIR_INSTRUCTIONS,
 } from "../task-context/contracts.mjs";
 export class Runtime {
   constructor(root, store) {
@@ -186,10 +187,23 @@ export class Runtime {
         const budgetReady =
           this.store.count() + nativeNeed <= 6 &&
           (!needsDelegation || this.store.delegationCount() < 2);
+        const reviewArtifact = t.checkpoint.review
+            ? snapshot.artifacts.find((a) => a.id === t.checkpoint.review)
+            : null,
+          openRepairTaskId = this.store.openRepairTaskId(t.id),
+          canCreateRepair =
+            t.state === "NEEDS_ATTENTION" &&
+            !!t.checkpoint.research &&
+            !!reviewArtifact &&
+            reviewArtifact.content.decision !== "PASS" &&
+            !openRepairTaskId;
         return {
           taskId: t.id,
+          kind: t.kind,
           reviewer,
           budgetReady,
+          reviewProvider: reviewArtifact?.content.workProvider ?? null,
+          repairTaskId: openRepairTaskId,
           canResume:
             !this.busy &&
             pending &&
@@ -210,6 +224,10 @@ export class Runtime {
             ...(t.checkpoint.research ? ["VIEW_ARTIFACT"] : []),
             ...(!this.credentials.hasPower() && pending ? ["ACTIVATE"] : []),
             ...(t.state === "MEMO_READY" ? ["HUMAN_REVIEW"] : []),
+            ...(canCreateRepair ? ["CREATE_REPAIR_TASK"] : []),
+            ...(["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state)
+              ? ["ABANDON_TASK"]
+              : []),
           ],
         };
       }),
@@ -296,6 +314,7 @@ export class Runtime {
             this.store.bound(task.id),
             this.store.check(task.id),
             args,
+            this.store.snapshotOwner(task.id),
           ),
         onStarted: (session, lineage) => {
           this.store.db
@@ -316,9 +335,11 @@ export class Runtime {
       summary = {
         ...result.receipt,
         comparison: !!options.comparison,
+        repair: options.repair ?? null,
         toolReads: result.toolReads,
         initialPromptDigest: hash(input),
         researchArtifactId: input.researchArtifact?.id ?? null,
+        originalArtifactId: input.originalResearchArtifact?.id ?? null,
         sourceExcerptIds: (input.sourceExcerpts ?? input.records ?? []).map(
           (r) => r.id,
         ),
@@ -327,9 +348,10 @@ export class Runtime {
       if (generation !== this.generation) throw Error("CANCELED");
       if (result.receipt.stopReason !== "completed")
         throw Error("TURN_NOT_COMPLETED");
+      if (result.releaseFailure) throw Error("EXECUTOR_RELEASE_FAILED");
       if (this.credentials.contains(result.raw))
         throw Error("SECRET_IN_OUTPUT");
-      return { raw: result.raw, run };
+      return { raw: result.raw, run, providerId };
     } catch (error) {
       this.store.db
         .prepare("UPDATE runs SET state='FAILED' WHERE id=?")
@@ -345,6 +367,11 @@ export class Runtime {
           .summary,
       );
       summary = { ...prior, ...summary, workProvider: providerId, failureCode };
+      // Keep the original error object and attach the failure code, so later
+      // integrity or release handling cannot overwrite the root cause.
+      try {
+        error.failureCode ??= failureCode;
+      } catch {}
       if (generation !== this.generation) throw Error("CANCELED");
       throw error;
     } finally {
@@ -431,6 +458,109 @@ export class Runtime {
       });
     });
   }
+  async researchRepair(id) {
+    const t = this.store.check(id),
+      snapshot = this.store.bound(id),
+      parentId = t.lineage.parentTaskId,
+      original = this.store.artifact(t.lineage.inputArtifactId),
+      review = this.store.artifact(t.lineage.reviewArtifactId);
+    if (
+      !original ||
+      !review ||
+      original.taskId !== parentId ||
+      review.taskId !== parentId ||
+      review.content.reviewedArtifactId !== original.id
+    )
+      throw Error("REPAIR_BINDING");
+    const input = {
+      taskId: id,
+      parentTaskId: parentId,
+      reason: t.lineage.reason,
+      subjectId: t.context.subjectId,
+      claim: t.context.claim,
+      baseRevisionId: t.context.baseRevisionId,
+      snapshotId: t.context.snapshotId,
+      asOf: t.context.asOf,
+      authorizedRecords: snapshot.records.map((r) => ({
+        recordId: r.id,
+        label: r.label,
+        status: r.status,
+      })),
+      originalResearchArtifact: { id: original.id, ...original.content },
+      reviewArtifact: {
+        id: review.id,
+        decision: review.content.decision,
+        issues: review.content.issues,
+        requestedCorrections: review.content.requestedCorrections,
+        reviewLimitations: review.content.reviewLimitations,
+      },
+      instructions:
+        "Address every requested correction inside the authorized snapshot scope. Read the authorized recordIds you still rely on with get_authorized_records in one batch before writing observations; source text is not in this prompt and the original artifact is reference data, not authority. Cite actual recordId, never R-01 aliases. One tool read, then final JSON. No extra calls.",
+    };
+    const { raw, run } = await this.invoke(
+      t,
+      "Researcher",
+      input,
+      REPAIR_INSTRUCTIONS,
+      {
+        repair: {
+          parentTaskId: parentId,
+          reviewArtifactId: review.id,
+          supersedesArtifactId: original.id,
+        },
+      },
+    );
+    if (!this.toolReads.length) throw Error("TOOL_READ_REQUIRED");
+    const content = {
+      ...validateResearch(raw, t.context),
+      contextDigest: t.digest,
+      snapshotId: snapshot.snapshotId,
+      snapshotDigest: snapshot.contentDigest,
+      baseRevisionId: snapshot.baseRevisionId,
+      candidate: true,
+      lineage: {
+        supersedesArtifactId: original.id,
+        parentTaskId: parentId,
+        repairTaskId: id,
+        reviewArtifactId: review.id,
+        reviewDecision: review.content.decision,
+      },
+    };
+    const readIds = this.toolReads.flatMap((x) => x.recordIds);
+    if (
+      content.observations.some((o) =>
+        o.citations.some((c) => !readIds.includes(c)),
+      )
+    )
+      throw Error("UNREAD_CITATION");
+    content.citationLineage = snapshot.records
+      .filter((r) =>
+        content.observations.some((o) => o.citations.includes(r.id)),
+      )
+      .map(({ text, source, ...identity }) => identity);
+    this.store.tx(() => {
+      const a = this.store.putArtifact(id, run, "RESEARCH", content);
+      this.store.db
+        .prepare("UPDATE runs SET state='SUCCESS' WHERE id=?")
+        .run(run);
+      this.store.state(id, "REVIEW_PENDING", {
+        ...t.checkpoint,
+        research: a.id,
+        review: null,
+        memo: null,
+        lastCompleted: "REPAIR_RESEARCH_COMPLETE",
+        nextAction: "Reviewer",
+        unresolvedIssues: content.unresolvedQuestions,
+      });
+      this.store.event("REPAIR_RESEARCH_COMMITTED", {
+        task: id,
+        parentTask: parentId,
+        artifact: a.id,
+        supersedes: original.id,
+        authoritativeWrite: false,
+      });
+    });
+  }
   reviewInput(id) {
     const t = this.store.check(id),
       a = this.store.artifact(t.checkpoint.research);
@@ -441,9 +571,20 @@ export class Runtime {
     const input = {
       task: {
         taskId: id,
+        kind: t.kind,
         scope: t.context.scope,
         contextDigest: t.digest,
         asOf: t.context.asOf,
+        repair:
+          t.kind === "REPAIR"
+            ? {
+                parentTaskId: t.lineage.parentTaskId,
+                reviewArtifactId: t.lineage.reviewArtifactId,
+                supersedesArtifactId:
+                  a.content.lineage?.supersedesArtifactId ?? null,
+                reason: t.lineage.reason,
+              }
+            : null,
       },
       claim: t.context.claim,
       baseRevisionId: t.context.baseRevisionId,
@@ -457,14 +598,15 @@ export class Runtime {
   }
   async review(id) {
     const { t, a, input } = this.reviewInput(id);
-    const { raw, run } = await this.invoke(
+    const { raw, run, providerId } = await this.invoke(
       t,
       "Reviewer",
       input,
       REVIEW_INSTRUCTIONS,
     );
     const content = {
-      ...validateReview(raw, a),
+      ...validateReview(raw, a, t.context.scope),
+      workProvider: providerId,
       contextDigest: t.digest,
       consumedResearchDigest: a.digest,
       snapshotId: t.context.snapshotId,
@@ -493,6 +635,11 @@ export class Runtime {
         content.decision === "PASS" ? "MEMO_PENDING" : "NEEDS_ATTENTION",
         cp,
       );
+      // A non-PASS review preserves the original Task, Artifact and Review and
+      // opens an explicit Repair Task bound to the same Snapshot. It is never
+      // executed automatically: a human starts it.
+      if (content.decision === "REQUEST_REVISION")
+        this.store.createRepairTask(id, { reviewArtifactId: v.id });
     });
     if (content.decision === "PASS") this.memo(id);
   }
@@ -519,6 +666,7 @@ export class Runtime {
         snapshotDigest: t.context.snapshotDigest,
         baseRevisionId: t.context.baseRevisionId,
         citationLineage: r.content.citationLineage,
+        lineage: r.content.lineage ?? null,
         authority: {
           claimVersion: t.context.claim.version,
           humanApproved: false,
@@ -535,11 +683,22 @@ export class Runtime {
       });
     });
   }
-  async compare(id, providerId) {
+  async compare(id, providerId, mode = "CROSS_PROVIDER") {
     if (this.busy) throw Error("BUSY");
     workProvider(providerId, "Reviewer");
+    if (!["CROSS_PROVIDER", "REPEAT_REVIEW"].includes(mode))
+      throw Error("INVALID_COMPARISON_MODE");
     const { t, a, input } = this.reviewInput(id);
     if (t.state !== "MEMO_READY") throw Error("MEMO_NOT_READY");
+    // A comparison only counts as cross-provider when the provider actually
+    // differs from the Reviewer that produced the recorded review. Same-provider
+    // work must be explicitly labelled as a repeat review instead.
+    const originalProvider =
+      this.store.artifact(t.checkpoint.review)?.content.workProvider ?? null;
+    if (mode === "REPEAT_REVIEW" && providerId !== originalProvider)
+      throw Error("REPEAT_REVIEW_REQUIRES_ORIGINAL_PROVIDER");
+    if (mode === "CROSS_PROVIDER" && providerId === originalProvider)
+      throw Error("COMPARISON_PROVIDER_MUST_DIFFER");
     this.busy = true;
     this.pending = (async () => {
       let run;
@@ -553,23 +712,37 @@ export class Runtime {
         );
         run = result.run;
         const content = {
-          ...validateReview(result.raw, a),
+          ...validateReview(result.raw, a, t.context.scope),
+          workProvider: providerId,
+          repeat: mode === "REPEAT_REVIEW",
           contextDigest: t.digest,
           consumedResearchDigest: a.digest,
           snapshotId: t.context.snapshotId,
           candidate: true,
           comparison: true,
-          workProvider: providerId,
         };
         this.store.tx(() => {
-          this.store.putArtifact(id, run, "REVIEW_COMPARISON", content);
+          this.store.putArtifact(
+            id,
+            run,
+            mode === "REPEAT_REVIEW" ? "REVIEW_REPEAT" : "REVIEW_COMPARISON",
+            content,
+          );
           this.store.db
             .prepare("UPDATE runs SET state='SUCCESS' WHERE id=?")
             .run(run);
-          this.store.event("REVIEW_COMPARISON_COMPLETED", {
-            task: id,
-            provider: providerId,
-          });
+          this.store.event(
+            mode === "REPEAT_REVIEW"
+              ? "REPEAT_REVIEW_COMPLETED"
+              : "REVIEW_COMPARISON_COMPLETED",
+            {
+              task: id,
+              provider: providerId,
+              originalProvider,
+              crossProvider:
+                mode === "CROSS_PROVIDER" && providerId !== originalProvider,
+            },
+          );
         });
         await this.export();
       } catch (error) {
@@ -596,9 +769,11 @@ export class Runtime {
     this.pending = (async () => {
       let id;
       try {
-        id = ["E", "F"].includes(action)
+        id = this.store.task(action)
           ? action
-          : this.store.duty().currentTask;
+          : ["E", "F"].includes(action)
+            ? action
+            : this.store.duty().currentTask;
         if (!id) throw Error("TASK_MISSING");
         let t;
         try {
@@ -618,7 +793,10 @@ export class Runtime {
           !this.status().environment.find((e) => e.taskId === id).budgetReady
         )
           throw Error("WORK_BUDGET_EXHAUSTED");
-        if (t.state === "RESEARCH_PENDING") await this.research(id);
+        if (t.state === "RESEARCH_PENDING")
+          await (t.kind === "REPAIR"
+            ? this.researchRepair(id)
+            : this.research(id));
         t = this.store.check(id);
         if (t.state === "REVIEW_PENDING") await this.review(id);
         else if (t.state === "MEMO_PENDING") this.memo(id);
@@ -627,19 +805,37 @@ export class Runtime {
         if (id) {
           const t = this.store.task(id);
           if (t && t.state.endsWith("_RUNNING")) {
+            const failureCode =
+              e.failureCode ??
+              (/^[A-Z_]+$/.test(e.message) ? e.message : "EXECUTION_FAILED");
             this.store.state(id, "NEEDS_ATTENTION", {
               ...t.checkpoint,
               reason:
                 e.message === "CANCELED"
                   ? "CANCELED"
                   : "EXECUTION_NOT_COMMITTED",
+              failureCode,
               nextAction: "人工核查，不自动重试",
             });
-            this.store.db
+            // Post-invocation contract failures (for example an out-of-scope
+            // review) never entered invoke's catch, so the run keeps the root
+            // failure code here without overwriting an existing one.
+            for (const row of this.store.db
               .prepare(
-                "UPDATE runs SET state='FAILED' WHERE task=? AND state='RUNNING'",
+                "SELECT id,summary FROM runs WHERE task=? AND state='RUNNING'",
               )
-              .run(id);
+              .all(id)) {
+              const summary = JSON.parse(row.summary ?? "{}");
+              this.store.db
+                .prepare("UPDATE runs SET state='FAILED',summary=? WHERE id=?")
+                .run(
+                  JSON.stringify({
+                    ...summary,
+                    failureCode: summary.failureCode ?? failureCode,
+                  }),
+                  row.id,
+                );
+            }
           }
         }
         throw e;

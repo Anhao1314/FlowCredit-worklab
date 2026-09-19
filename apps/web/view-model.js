@@ -8,6 +8,7 @@ export const taskStates = {
   MEMO_READY: "候选备忘已就绪",
   NEEDS_ATTENTION: "需要处理",
   RECOVERY_BLOCKED: "恢复受阻",
+  ABANDONED: "已放弃",
 };
 export const reasons = {
   CANCELED: "已由用户停止，未完成结果不予提交。",
@@ -18,6 +19,7 @@ export const reasons = {
   ARTIFACT_MISSING: "已保存的产物缺失，恢复已停止。",
   ARTIFACT_INTEGRITY: "产物完整性校验失败，恢复已停止。",
   SNAPSHOT_MISMATCH: "固定研究上下文校验失败。",
+  ABANDONED_BY_HUMAN: "已由人工放弃；已有产物保留，不会自动重试。",
 };
 export function project(state) {
   const ready = state.runtime.modelOnline;
@@ -35,9 +37,26 @@ export function project(state) {
     ].includes(t.state);
     const cost =
       t.state === "RESEARCH_PENDING" ? 3 : t.state === "REVIEW_PENDING" ? 1 : 0;
+    // The runtime stays authoritative; the local projection only mirrors the
+    // same deterministic exits when no environment entry is available.
+    const allowedActions = environment?.allowedActions ?? [
+      ...(t.state === "NEEDS_ATTENTION" &&
+      t.checkpoint.research &&
+      t.checkpoint.review
+        ? ["CREATE_REPAIR_TASK"]
+        : []),
+      ...(["NEEDS_ATTENTION", "RECOVERY_BLOCKED"].includes(t.state)
+        ? ["ABANDON_TASK"]
+        : []),
+    ];
     return {
       ...t,
-      label: taskStates[t.state] || t.state,
+      label:
+        (t.kind === "REPAIR" ? "修复任务 · " : "") +
+        (taskStates[t.state] || t.state),
+      allowedActions,
+      repairTaskId: environment?.repairTaskId ?? null,
+      reviewProvider: environment?.reviewProvider ?? null,
       canResume: environment
         ? environment.canResume
         : ready && idle && resumable && remaining >= cost,
@@ -47,7 +66,7 @@ export function project(state) {
         (t.state === "MEMO_READY"
           ? "执行已完成；候选备忘尚未经人工接纳。"
           : t.state === "NEEDS_ATTENTION"
-            ? "请查看复核意见，当前任务不会自动重试。"
+            ? "请查看复核意见；修复与放弃都由你显式决定，当前任务不会自动重试。"
             : !resumable
               ? "执行状态已保存。"
               : !ready && t.state !== "MEMO_PENDING"

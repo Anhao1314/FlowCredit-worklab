@@ -24,7 +24,9 @@ The coordinator is programmatic. Each role invocation creates an ephemeral paren
 
 ## Two state systems
 
-**Execution state**: `RESEARCH_PENDING → RESEARCH_RUNNING → REVIEW_PENDING → REVIEW_RUNNING → MEMO_PENDING → MEMO_READY`. Cancellation or incomplete execution preserves a reason and stops. Invalid context enters `RECOVERY_BLOCKED`; a non-PASS review enters `NEEDS_ATTENTION`. Resume skips committed work.
+**Execution state**: `RESEARCH_PENDING → RESEARCH_RUNNING → REVIEW_PENDING → REVIEW_RUNNING → MEMO_PENDING → MEMO_READY`. Cancellation or incomplete execution preserves a reason and stops. Invalid context enters `RECOVERY_BLOCKED`; a non-PASS review enters `NEEDS_ATTENTION`; an explicit human exit enters `ABANDONED`. Resume skips committed work, and the checkpoint keeps the failure code distinct from later integrity or teardown handling.
+
+**Repair loop**: a `REQUEST_REVISION` review never mutates the original Task back into `RESEARCH_PENDING`. It preserves the original Task, Research Artifact and Review Artifact and opens an explicit Repair Task whose lineage records `parentTaskId`, `snapshotId`, `inputArtifactId`, `reviewArtifactId` and `reason`. A Repair Task has no Snapshot of its own: it can only resolve the chain root's frozen Snapshot, so context cannot silently expand and no `latest` revision is reachable. It is never executed automatically; a human starts it, which creates a new Researcher AgentRun, consumes new budget, and produces a new Research Artifact carrying `supersedesArtifactId` lineage. The revision is reviewed through the same Reviewer mechanism; PASS assembles a Candidate Memo that stops at the Human Gate. `BLOCKED` and execution failures offer only deterministic human exits: `CREATE_REPAIR_TASK` (when a non-PASS Review exists) and `ABANDON_TASK`. Reviewer `issues[].recordIds` is validated against the Task's authorized Snapshot scope for both providers; any out-of-scope record rejects the whole Review Artifact with `REVIEW_RECORD_OUT_OF_SCOPE` before commit. A cross-provider comparison requires a provider different from the recorded Reviewer; same-provider work is rejected or explicitly stored and labelled as a repeat review.
 
 **Research authority state** belongs to FlowCredit and people. Evidence Admission, Claim Revision, Relation and Human Decision are never effects of an Agent run. The fixture setup and explicit synthetic v2 administration action are separate from live execution.
 
@@ -53,7 +55,9 @@ All endpoints bind to the loopback host and reject incorrect Host. Mutations add
 | `POST /api/create-e` | Create S1/v1 and E; repeated creation refused |
 | `POST /api/test-v2` | Explicit synthetic-only administrative revision event |
 | `POST /api/create-f` | Create S2/v2 and F after E is ready |
-| `POST /api/resume` | Resume `{taskId}` deterministically after integrity checks |
+| `POST /api/resume` | Resume `{taskId}` deterministically after integrity checks; accepts research and repair tasks |
+| `POST /api/create-repair` | Explicitly open a Repair Task for a non-PASS task; idempotent per Review, never executes it |
+| `POST /api/abandon` | Explicit human exit for `NEEDS_ATTENTION` / `RECOVERY_BLOCKED`; keeps artifacts, spends no budget |
 | `POST /api/stand-down` | Cancel/drain execution, release Sessions and credential |
 | `POST /api/secret-check` | Exact-match check against the active credential in the runtime data directory; returns counts only |
 

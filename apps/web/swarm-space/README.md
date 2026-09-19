@@ -17,6 +17,8 @@ Use previous/next, restart, or the scene picker. Click desks, workers, task card
 
 **DESIGN MOCK / READ ONLY**, not live telemetry. Parallel specialist roles, synthesis, linked repair orchestration and Codex replacement are proposed interactions, not claims that these executors are connected. The office does not call providers, persist records, approve candidates or modify runtime lifecycle semantics. IDs and digests are illustrative. The Human Gate intentionally has no approval control.
 
+Terminology note (M1): the real Control Plane now implements the linked repair semantics shown here — REQUEST_REVISION preserves the original task/artifact/review, opens a Repair Task bound to the same Snapshot, and a human explicitly starts the new run that produces a lineage-linked revised artifact. This page remains the design mock: Risk, Evidence, Synthesis and Codex have no executor support, and the visualization does not drive the runtime.
+
 ## Source and licensing
 
 Upstream: https://github.com/chaitanyagiri/munder-difflin
@@ -27,4 +29,4 @@ The pinned revision, MIT license and adaptation details are in `vendor/munder-di
 
 `node --test tests/**/*.test.mjs`
 
-Tests cover immutable projections, provenance, linked repair, checkpoint retention across replacement, stand-down authority, rendering, handoff endpoints and moving hit targets, reduced-motion behavior, HTTP asset allowlisting and Pages packaging. `node scripts/check.mjs` additionally rejects local runtime files; the existing untracked `.peridot/memory.db` is preserved and currently blocks that check.
+Tests cover immutable projections, provenance, linked repair, checkpoint retention across replacement, stand-down authority, rendering, handoff endpoints and moving hit targets, reduced-motion behavior, HTTP asset allowlisting and Pages packaging. `node scripts/check.mjs` additionally rejects local runtime files and skips local tool state such as `.peridot`, which stays untracked and is never committed.
