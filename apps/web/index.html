@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="ignition.css" />
   </head>
-  <body class="ignition-mode">
+  <body class="sidebar-collapsed">
     <section id="ignition" aria-label="FlowCredit 系统激活首页">
       <canvas id="creation-scene" aria-hidden="true"></canvas>
       <div class="ignition-top">
@@ -52,24 +52,27 @@
         <a class="button" href="#overview">进入研究工作台</a>
       </div>
       <div class="ignition-bottom">
-        <span>Michelangelo · The Creation of Adam / 指尖局部</span>
+        <span>Michelangelo · The Creation of Adam / 指尖局部 · 像素化呈现</span>
         <p>点亮代表能力接通，不代表任务完成。研究由你主动开始。</p>
       </div>
     </section>
     <a class="skip" href="#content">跳到主要内容</a>
     <header>
-      <a class="brand" href="#ignition"
+      <a class="brand" href="#overview"
         >FlowCredit <small>研究记忆与协作</small></a
       ><span class="dataset">合成研究库 · Northstar · 仅候选产物</span
       ><button id="power" aria-controls="power-panel">连接中</button>
     </header>
     <div class="shell">
       <aside class="sidebar">
-        <nav aria-label="平台导航">
-          <a href="#overview">研究概览</a
-          ><a href="#tasks">任务协作 <span id="task-count">0</span></a
-          ><a href="#memory">研究记忆</a><a href="#providers">执行能力</a
-          ><a href="#activity">执行记录</a>
+        <button id="sidebar-toggle" type="button" aria-expanded="false" aria-controls="platform-nav" aria-label="展开功能栏" title="展开功能栏">☰</button>
+        <nav id="platform-nav" aria-label="平台导航">
+          <a href="#overview" aria-label="办公室首页" title="办公室首页"><i aria-hidden="true">▦</i><span class="nav-label">办公室首页</span></a>
+          <a href="#research" aria-label="研究概览" title="研究概览"><i aria-hidden="true">◈</i><span class="nav-label">研究概览</span></a>
+          <a href="#tasks" aria-label="任务协作" title="任务协作"><i aria-hidden="true">☷</i><span class="nav-label">任务协作 <b id="task-count">0</b></span></a>
+          <a href="#memory" aria-label="研究记忆" title="研究记忆"><i aria-hidden="true">▤</i><span class="nav-label">研究记忆</span></a>
+          <a href="#providers" aria-label="执行能力" title="执行能力"><i aria-hidden="true">◇</i><span class="nav-label">执行能力</span></a>
+          <a href="#activity" aria-label="执行记录" title="执行记录"><i aria-hidden="true">◷</i><span class="nav-label">执行记录</span></a>
         </nav>
         <div class="sidebar-note">
           <b>研究权威始终属于人</b>
@@ -79,7 +82,10 @@
       </aside>
       <main id="content">
         <p id="notice" role="status" aria-live="polite"></p>
-        <section id="overview" class="view">
+        <section id="overview" class="view" aria-label="办公室首页">
+          <iframe id="office-home" title="FlowCredit 研究办公室 · 设计演示" data-src="swarm-space/?embedded=1"></iframe>
+        </section>
+        <section id="research" class="view" hidden>
           <div class="page-heading">
             <p>Northstar Compute / 北辰算力</p>
             <h1>从观点出发，<br />让每一次研究有据可循。</h1>

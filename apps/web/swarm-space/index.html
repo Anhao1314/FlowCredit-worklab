@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>FlowCredit · Swarm Space</title>
+    <link rel="stylesheet" href="swarm-space.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="brandbar">
+        <div class="brand">
+          <p class="wordmark">
+            <span class="name">FlowCredit</span><span class="sep">·</span><span class="product">Swarm Space</span>
+          </p>
+          <p class="tagline">Persistent Agent Research Organization</p>
+        </div>
+        <div class="marks">
+          <a class="platform-return" id="platform-return" href="../#overview" hidden>返回研究工作台</a>
+          <p class="banner" id="banner">MOCK STATE · READ-ONLY</p>
+          <p class="devtag">设计演示 · 非实时运行</p>
+        </div>
+      </header>
+
+      <main class="stage">
+        <section class="storybar" aria-label="组织协作故事">
+          <div><span id="story-position"></span><h1 id="story-title"></h1></div>
+          <div class="story-actions"><button id="previous-scene" type="button" aria-label="上一步">←</button><button id="next-scene" type="button">下一步 →</button><button id="motion-toggle" type="button" aria-pressed="false">暂停动画</button><button id="restart-story" type="button">从头看</button></div>
+        </section>
+        <div class="frame">
+          <canvas
+            id="stage"
+            width="1600"
+            height="900"
+            aria-label="Swarm Space 持久组织：点击工作对象或使用下方对象目录查看详情。手写演示，非实时运行状态。"
+          ></canvas>
+
+          <section class="hud statuscard" aria-label="当前状态 Current State">
+            <p class="hud-kicker">当前状态 · Current State</p>
+            <p class="status-scene" id="status-scene">—</p>
+            <dl class="status-rows">
+              <dt>Agents</dt>
+              <dd id="status-agents">—</dd>
+              <dt>Artifacts</dt>
+              <dd id="status-artifacts">—</dd>
+              <dt>Human Gate</dt>
+              <dd id="status-gate">—</dd>
+            </dl>
+          </section>
+
+          <p class="hud mocktag">VISUAL PROJECTION (MOCK)</p>
+
+
+        </div>
+
+        <ol class="flow" id="flow" aria-label="Task flow · 工作流"></ol>
+
+        <p class="caption" aria-live="polite"><strong id="scene-name"></strong><span id="caption"></span></p>
+      <details class="object-directory"><summary>查看岗位、任务与产物</summary><div id="object-list"></div></details>
+        <p class="concept-note">并行分工、综合、修复任务与 Codex 替换为设计探索；本页不会运行 Agent，也不会批准候选。</p>
+        <p class="credits">Character art &amp; animation code: <a href="https://github.com/chaitanyagiri/munder-difflin" target="_blank" rel="noreferrer">Munder Difflin</a> · MIT · FlowCredit office adaptation</p>
+      </main>
+    </div>
+
+    <aside class="drawer" id="drawer" aria-hidden="true" inert aria-label="对象详情">
+      <button class="drawer-close" id="drawer-close" type="button" aria-label="关闭详情">×</button>
+      <h2 id="drawer-title">详情</h2>
+      <dl id="drawer-body"></dl>
+      <ol class="stages" id="drawer-stages"></ol>
+      <p class="muted" id="drawer-note"></p>
+    </aside>
+
+    <div class="devpanel" id="devpanel">
+      <button class="dev-toggle" id="dev-toggle" type="button" aria-expanded="false">切换研究场景</button>
+      <div class="dev-body">
+        <p class="dev-hint">Fixture 场景 · 手写 mock，不代表真实运行状态</p>
+        <div class="scenes" id="scenes" role="group" aria-label="Fixture 场景切换"></div>
+        <p class="muted" id="fps">手动切换场景，动画仅呈现这次场景变化。</p>
+      </div>
+    </div>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

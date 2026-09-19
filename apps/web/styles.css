@@ -555,3 +555,215 @@ textarea:focus-visible {
   outline: 2px solid #315f4b;
   outline-offset: 3px;
 }
+
+/* One native link makes the entire office module keyboard and pointer accessible. */
+.swarm-entry {
+  display: flex; align-items: center; gap: 22px; margin: 24px 0; padding: 24px;
+  border: 1px solid #cbdad4; border-radius: 12px; background: #f4f7f4;
+  color: #243e36; text-decoration: none;
+}
+.swarm-entry:hover { background: #eaf1eb; border-color: #809d8d; }
+.swarm-entry:focus-visible { outline: 3px solid #315f4b; outline-offset: 4px; }
+.swarm-entry-icon { display: grid; place-items: center; width: 62px; height: 62px; flex-shrink: 0; border-radius: 10px; background: #dce7dd; color: #436752; font-size: 38px; }
+.swarm-entry-copy { flex: 1; }
+.swarm-entry h2 { margin: 0 0 6px; font-size: 19px; }
+.swarm-entry p { margin: 0 0 8px; color: #52636b; font-size: 13px; }
+.swarm-entry-note { font-size: 11px; color: #6b756d; }
+.swarm-entry-action { flex-shrink: 0; font-size: 14px; font-weight: 600; }
+.swarm-entry-action small { display: block; margin-top: 5px; color: #6b756d; font-size: 11px; font-weight: 400; }
+@media(max-width: 650px) {
+  .swarm-entry { flex-wrap: wrap; gap: 14px; padding: 18px; }
+  .swarm-entry-icon { width: 44px; height: 44px; font-size: 30px; }
+  .swarm-entry-copy { min-width: 180px; }
+  .swarm-entry-action { margin-left: 58px; }
+}
+
+/* Workspace theme — the same paper, sage carpet and wood palette as Swarm Space.
+   Scoped to the workspace so the activation page retains its own composition. */
+body:not(.ignition-mode) {
+  --line: #c6beac;
+  --ink: #302f32;
+  --muted: #686459;
+  --accent: #45665b;
+  --office-paper: #f7f0df;
+  --office-wood: #c4a37c;
+  --office-edge: #514c43;
+  color: var(--ink);
+  background: #e4dfd2;
+}
+body:not(.ignition-mode) > header {
+  height: 76px;
+  background: #f2e8d5;
+  border-bottom: 2px solid var(--office-edge);
+  box-shadow: 0 4px 0 #c9beaa;
+  padding-inline: 28px;
+}
+body:not(.ignition-mode) .brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-family: "SFMono-Regular", Consolas, "PingFang SC", monospace;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -.6px;
+}
+body:not(.ignition-mode) .brand::before {
+  content: "";
+  width: 24px; height: 24px;
+  border: 3px solid #514c43;
+  background: #8b9f9d;
+  box-shadow: inset 5px 0 #bcc9b6, 3px 3px #b5a58d;
+}
+body:not(.ignition-mode) .brand small { margin-left: 0; font-family: -apple-system, "PingFang SC", sans-serif; }
+body:not(.ignition-mode) .dataset { border-left: 1px solid #c6beac; padding-left: 20px; }
+body:not(.ignition-mode) > .shell { grid-template-columns: 224px minmax(0, 1fr); min-height: calc(100vh - 76px); }
+body:not(.ignition-mode) .sidebar {
+  padding: 34px 18px;
+  background: #b4bfb1;
+  border-right: 2px solid var(--office-edge);
+  gap: 42px;
+}
+body:not(.ignition-mode) nav { gap: 12px; }
+body:not(.ignition-mode) nav a {
+  position: relative;
+  color: #394a40;
+  border: 2px solid transparent;
+  border-radius: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+body:not(.ignition-mode) nav a:hover { border-color: #8c9b88; background: #c6cebc; }
+body:not(.ignition-mode) nav a[aria-current] {
+  background: #f2e8d5;
+  color: #302f32;
+  border-color: var(--office-edge);
+  box-shadow: 4px 4px 0 #81917e;
+}
+body:not(.ignition-mode) nav a[aria-current]::before {
+  content: ""; position: absolute; top: 17px; left: -7px;
+  width: 8px; height: 14px; background: #ae8661; border: 2px solid #514c43;
+}
+body:not(.ignition-mode) nav span { background: #d5dcc9; padding: 0 6px; color: #394a40; }
+body:not(.ignition-mode) .sidebar-note {
+  border-top: 2px solid #8c9b88;
+  padding: 22px 12px 0;
+  color: #425246;
+}
+body:not(.ignition-mode) main { max-width: 1280px; padding: 24px clamp(24px, 4vw, 64px) 48px; }
+body:not(.ignition-mode) #notice:empty { display: none; }
+body:not(.ignition-mode) .page-heading { border-bottom: 2px solid #b6ac98; padding-bottom: 22px; margin: 12px 0 28px; }
+body:not(.ignition-mode) .page-heading > p:first-child {
+  display: inline-block; margin: 0 0 4px; padding: 3px 10px;
+  border: 1px solid #b7a68d; background: #d8c8ac; color: #564b3b; font-size: 12px;
+}
+body:not(.ignition-mode) h1 {
+  font-family: "SFMono-Regular", Consolas, "PingFang SC", monospace;
+  font-size: clamp(26px, 2.65vw, 36px); line-height: 1.45; letter-spacing: -.6px; font-weight: 650;
+}
+body:not(.ignition-mode) h2 { font-size: 20px; font-weight: 600; }
+body:not(.ignition-mode) :is(button, .button, input, select, textarea) {
+  border: 2px solid #817564;
+  border-radius: 1px;
+  background: #f7f0df;
+  color: #302f32;
+}
+body:not(.ignition-mode) :is(button, .button) { box-shadow: 3px 3px 0 #c0b49f; padding: 9px 15px; font-weight: 550; }
+body:not(.ignition-mode) :is(button, .button):hover:not(:disabled) { background: #e5d6ba; border-color: #514c43; }
+body:not(.ignition-mode) :is(button, .button):active:not(:disabled) { box-shadow: 1px 1px 0 #b0a48e; transform: translate(2px, 2px); }
+body:not(.ignition-mode) .primary { background: #536f5e; color: #fff9e9; border-color: #344b3f; box-shadow: 3px 3px 0 #acb29b; }
+body:not(.ignition-mode) .primary:hover:not(:disabled) { background: #3f5949; }
+body:not(.ignition-mode) button:disabled { opacity: .55; box-shadow: none; }
+body:not(.ignition-mode) :is(button, a, input, select, textarea, summary):focus-visible { outline: 3px solid #456878; outline-offset: 4px; }
+body:not(.ignition-mode) .online { background: #d4dfc6; color: #304c3b; }
+body:not(.ignition-mode) :is(.claim, .task, .source) {
+  background: var(--office-paper);
+  border: 2px solid #8c806c;
+  border-radius: 0;
+  box-shadow: 5px 5px 0 #c5baa4;
+}
+body:not(.ignition-mode) .claim { border-left: 7px solid #7e9a90; padding: 22px 26px; }
+body:not(.ignition-mode) .claim h2 { max-width: 42em; }
+body:not(.ignition-mode) .source { padding: 22px 24px; margin-block: 20px; }
+body:not(.ignition-mode) .source:target { outline: 3px solid #648ca4; outline-offset: 3px; }
+body:not(.ignition-mode) .pill { background: #e4ddca; color: #5b5142; border: 1px solid #baac92; border-radius: 0; padding: 2px 8px; }
+body:not(.ignition-mode) .accepted { background: #dce6cf; color: #354f35; border-color: #8a9e78; }
+body:not(.ignition-mode) .candidate { background: #f1dfb3; color: #715328; border-color: #bba16b; }
+body:not(.ignition-mode) .empty { background: #d9dfd1; border: 1px dashed #8a9680; color: #4b5c4d; border-radius: 0; }
+body:not(.ignition-mode) .next { padding: 26px 0; border-bottom: 2px solid #b6ac98; }
+body:not(.ignition-mode) .planes { gap: 16px; }
+body:not(.ignition-mode) .planes > div { padding: 16px 18px; border: 1px solid #b8ac97; background: #ece4d1; }
+body:not(.ignition-mode) .planes b { display: block; padding-bottom: 8px; border-bottom: 2px solid #c3b394; }
+body:not(.ignition-mode) .planes a { color: #45665b; }
+body:not(.ignition-mode) .pipeline { gap: 8px; }
+body:not(.ignition-mode) .pipeline li { border-top: 5px solid #c9c1b0; color: #716b5f; }
+body:not(.ignition-mode) .pipeline .done { border-color: #7f997b; color: #436240; }
+body:not(.ignition-mode) .pipeline .active { border-color: #648ca4; color: #365f73; }
+body:not(.ignition-mode) .observation { border-left: 3px solid #a99b7e; }
+body:not(.ignition-mode) .candidate-output { background: #f0e4c9; padding: 8px 20px 16px; border: 1px solid #cbb789; margin-top: 24px; }
+body:not(.ignition-mode) .timeline { border-left: 2px solid #a69c85; padding-left: 24px; }
+body:not(.ignition-mode) .timeline > li { position: relative; border-color: #c6beac; }
+body:not(.ignition-mode) .timeline > li::before { content: ""; position: absolute; left: -30px; top: 27px; width: 10px; height: 10px; border: 2px solid #514c43; background: #b4bfb1; }
+body:not(.ignition-mode) pre { background: #e7decb; border: 1px solid #c2b69e; padding: 14px; color: #514c43; }
+body:not(.ignition-mode) footer { color: #6a6254; border-color: #b6ac98; }
+body:not(.ignition-mode) dialog { background: #f7f0df; border: 2px solid #514c43; border-radius: 0; box-shadow: 8px 8px 0 #514c4340; }
+body:not(.ignition-mode) dialog::backdrop { background: #302f3266; backdrop-filter: none; }
+body:not(.ignition-mode) .swarm-entry {
+  background: #c9d3c0; border: 2px solid #66765f; border-radius: 0;
+  box-shadow: 5px 5px 0 #a4b095; color: #302f32; padding: 22px 24px;
+}
+body:not(.ignition-mode) .swarm-entry:hover { background: #bccbb1; border-color: #43513c; }
+body:not(.ignition-mode) .swarm-entry-icon {
+  background: #e9d5ae; border: 2px solid #6e624d; border-radius: 0; color: #536f5e;
+  box-shadow: 3px 3px 0 #a49d7f;
+}
+body:not(.ignition-mode) .swarm-entry :is(p, .swarm-entry-note, small) { color: #4e5a48; }
+body:not(.ignition-mode) .swarm-entry-action { border-left: 1px solid #9ba98f; padding-left: 22px; }
+body:not(.ignition-mode) .public-demo-label { background: #514c43; color: #f2e8d5; border-top: 2px solid #ad9671; }
+body:not(.ignition-mode) .public-demo-label button { background: #e9dcc3; padding: 2px 9px; box-shadow: none; }
+@media (max-width: 950px) {
+  body:not(.ignition-mode) > .shell { grid-template-columns: 184px minmax(0, 1fr); }
+  body:not(.ignition-mode) .sidebar { padding: 28px 12px; }
+  body:not(.ignition-mode) main { padding-inline: 24px; }
+  body:not(.ignition-mode) .brand small { display: none; }
+}
+@media (max-width: 620px) {
+  body:not(.ignition-mode) > header { height: 68px; padding-inline: 16px; }
+  body:not(.ignition-mode) > .shell { display: block; }
+  body:not(.ignition-mode) .sidebar { padding: 12px 10px; border-right: 0; border-bottom: 2px solid #514c43; }
+  body:not(.ignition-mode) nav { gap: 4px; }
+  body:not(.ignition-mode) nav a { padding: 9px 3px; font-size: 12px; }
+  body:not(.ignition-mode) nav a[aria-current] { box-shadow: 2px 2px 0 #81917e; }
+  body:not(.ignition-mode) nav a[aria-current]::before { display: none; }
+  body:not(.ignition-mode) main { padding: 22px 18px 40px; }
+  body:not(.ignition-mode) .task { padding: 20px 16px; }
+  body:not(.ignition-mode) .claim { padding: 18px; }
+  body:not(.ignition-mode) .swarm-entry { padding: 18px; }
+  body:not(.ignition-mode) .swarm-entry-action { border-left: 0; padding-left: 0; }
+  body:not(.ignition-mode) .brand { font-size: 19px; gap: 10px; }
+  body:not(.ignition-mode) .brand::before { width: 20px; height: 20px; }
+}
+
+/* Office-first workspace with a compact, keyboard-accessible navigation rail. */
+body:not(.ignition-mode) .sidebar { gap: 24px; }
+body:not(.ignition-mode) .sidebar nav { display: grid; }
+body:not(.ignition-mode) .sidebar nav a { display: flex; align-items: center; gap: 12px; text-align: left; }
+body:not(.ignition-mode) .sidebar nav i { font-style: normal; font-size: 22px; width: 24px; text-align: center; flex-shrink: 0; }
+body:not(.ignition-mode) .sidebar .nav-label { float: none; padding: 0; background: transparent; font-size: 13px; }
+body:not(.ignition-mode) .sidebar nav a[aria-current]::before { display: none; }
+body:not(.ignition-mode) #sidebar-toggle { align-self: flex-start; min-width: 42px; min-height: 42px; }
+body.sidebar-collapsed:not(.ignition-mode) > .shell { display: grid; grid-template-columns: 76px minmax(0, 1fr); }
+body.sidebar-collapsed:not(.ignition-mode) .sidebar { padding: 18px 12px; border-right: 2px solid #514c43; }
+body.sidebar-collapsed:not(.ignition-mode) .sidebar nav a { justify-content: center; padding: 10px 6px; }
+body.sidebar-collapsed:not(.ignition-mode) .sidebar :is(.nav-label, .sidebar-note) { display: none; }
+body.office-home:not(.ignition-mode) main { max-width: none; padding: 0; }
+#office-home { display: block; width: 100%; height: calc(100svh - 80px); min-height: 640px; border: 0; background: #f3f0e8; }
+body.office-home #notice:not(:empty) { margin: 12px 20px; }
+@media (max-width: 680px) {
+  body:not(.ignition-mode) > .shell { display: grid; grid-template-columns: 164px minmax(0, 1fr); }
+  body.sidebar-collapsed:not(.ignition-mode) > .shell { grid-template-columns: 60px minmax(0, 1fr); }
+  body.sidebar-collapsed:not(.ignition-mode) .sidebar { padding: 12px 7px; }
+  body:not(.ignition-mode) .sidebar { padding: 12px 8px; }
+  body:not(.ignition-mode) .sidebar .nav-label { display: inline; }
+  body:not(.ignition-mode) .sidebar-note { display: none; }
+  #office-home { height: calc(100svh - 68px); min-height: 640px; }
+}

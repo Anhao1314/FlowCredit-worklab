@@ -2,8 +2,8 @@
   position: relative;
   min-height: 540px;
   height: 100svh;
-  background: #080d14;
-  color: #e4eaf0;
+  background: #e4dfd2;
+  color: #302f32;
   overflow: hidden;
   font:
     13px/1.6 -apple-system,
@@ -42,11 +42,11 @@ body:not(.ignition-mode) #ignition {
   letter-spacing: -0.7px;
   font-weight: 550;
   text-decoration: none;
-  color: #e4eaf0;
+  color: #302f32;
 }
 .ignition-top > span {
   font-size: 10px;
-  color: #96a5b6;
+  color: #686459;
   margin-left: auto;
 }
 #ignition button,
@@ -58,18 +58,18 @@ body:not(.ignition-mode) #ignition {
 #ignition button {
   background: none;
   border: 0;
-  color: #adbdcd;
+  color: #514c43;
   font-size: 11px;
 }
 #ignition button:focus-visible,
 #ignition a:focus-visible,
 #ignition input:focus-visible {
-  outline: 2px solid #a1c5df;
+  outline: 2px solid #456878;
   outline-offset: 4px;
 }
 #motion {
   padding: 6px 0 6px 20px;
-  border-left: 1px solid #364351 !important;
+  border-left: 1px solid #b6ac98 !important;
   border-radius: 0;
 }
 .ignition-intro {
@@ -81,7 +81,7 @@ body:not(.ignition-mode) #ignition {
 }
 .ignition-intro > p:first-child {
   font-size: 11px;
-  color: #94a3b3;
+  color: #686459;
   letter-spacing: 2px;
 }
 .ignition-intro h1 {
@@ -93,7 +93,7 @@ body:not(.ignition-mode) #ignition {
 }
 .ignition-intro > p:last-child {
   font-size: 13px;
-  color: #a2adba;
+  color: #686459;
   letter-spacing: 3px;
 }
 #ignition-entry {
@@ -107,15 +107,15 @@ body:not(.ignition-mode) #ignition {
 }
 #ignition #activation {
   padding: 10px;
-  background: #0c1420e8;
-  border: 1px solid #687e9077;
-  border-radius: 12px;
-  backdrop-filter: blur(14px);
-  box-shadow: 0 0 50px #080d1444;
+  background: #f7f0dff5;
+  border: 2px solid #817564;
+  border-radius: 0;
+  backdrop-filter: none;
+  box-shadow: 5px 5px 0 #b8aa91;
 }
 #ignition #activation:focus-within {
-  border-color: #a6c0d3;
-  box-shadow: 0 0 45px #89b6d51a;
+  border-color: #536f5e;
+  box-shadow: 5px 5px 0 #9cae96;
 }
 #ignition #activation label {
   position: absolute;
@@ -133,33 +133,33 @@ body:not(.ignition-mode) #ignition {
 #ignition input {
   border: 0;
   background: transparent;
-  color: #e7eef7;
+  color: #302f32;
   font-size: 12px;
   padding: 12px 8px;
   width: 100%;
   min-width: 0;
 }
 #ignition input::placeholder {
-  color: #93a2b2;
+  color: #786e5c;
 }
 #ignition #activation button {
-  background: #d9e5ee;
-  color: #172633;
-  border: 1px solid #f5f8fa44;
-  border-radius: 7px;
+  background: #536f5e;
+  color: #fff9e9;
+  border: 1px solid #344b3f;
+  border-radius: 0;
   padding: 10px 14px;
   font-size: 12px;
   flex-shrink: 0;
 }
 #ignition #activation button:hover {
-  background: #f3f8fb;
+  background: #3f5949;
 }
 #ignition button:disabled {
   opacity: 0.4;
 }
 .ignition-note {
   font-size: 10px;
-  color: #93a5b8;
+  color: #686459;
   margin: 12px 0;
 }
 #browse-memory {
@@ -167,17 +167,17 @@ body:not(.ignition-mode) #ignition {
   margin-top: 12px;
   font-size: 11px;
   text-decoration: none;
-  color: #a9bbce;
+  color: #45665b;
   padding: 6px;
 }
 #browse-memory span {
   font-size: 9px;
   margin-left: 10px;
-  color: #718ca5;
+  color: #686459;
 }
 #ignition-error {
   font-size: 12px;
-  color: #e2c494;
+  color: #895239;
   max-width: 340px;
   margin: 8px auto;
 }
@@ -203,12 +203,12 @@ body:not(.ignition-mode) #ignition {
 #ignition-progress p,
 #ignition-ready p {
   font-size: 11px;
-  color: #99aec2;
+  color: #686459;
   margin: 6px 0;
 }
 #ignition-ready .button {
-  background: #dae5ee;
-  color: #172633;
+  background: #536f5e;
+  color: #fff9e9;
   margin: 8px 0;
   padding: 8px 18px;
 }
@@ -220,7 +220,7 @@ body:not(.ignition-mode) #ignition {
   display: flex;
   justify-content: space-between;
   gap: 20px;
-  color: #879aaa;
+  color: #686459;
   font-size: 9px;
 }
 .ignition-bottom p {
@@ -311,3 +311,13 @@ body:not(.ignition-mode) #ignition {
     transition: none !important;
   }
 }
+
+/* Paper office styling; original title/form/footer geometry is unchanged. */
+.ignition-brand, .ignition-intro h1 { font-family: "SFMono-Regular", Consolas, "PingFang SC", monospace; font-weight: 600; }
+#ignition input { border-radius: 0; }
+#ignition #activation button, #ignition-ready .button { border: 2px solid #344b3f; border-radius: 0; box-shadow: 2px 2px 0 #b4b89e; }
+#browse-memory { background: #f2e8d5e8; border: 1px solid #c6beac; padding: 6px 12px; }
+#ignition-ready .button:hover { background: #3f5949; }
+#cancel-ignition { border: 1px solid #817564 !important; border-radius: 0; background: #f2e8d5 !important; }
+.ignition-mode .public-demo-label { background: #514c43; color: #f2e8d5; border-top: 2px solid #ad9671; }
+.ignition-mode .public-demo-label button { background: #e9dcc3; border: 1px solid #817564; border-radius: 0; color: #302f32; }

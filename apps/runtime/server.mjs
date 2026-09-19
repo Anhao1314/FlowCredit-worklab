@@ -83,18 +83,34 @@ const server = createServer(async (req, res) => {
         "/assets/creation-of-adam.jpg": "assets/creation-of-adam.jpg",
         "/styles.css": "styles.css",
       };
-      if (files[req.url]) {
+      // Same-origin, explicitly allowlisted visual demo; no runtime data is exposed.
+      const swarmAssets = [
+        "index.html", "main.js", "office-scene.js", "organization-story.js", "organization-scene.js", "scene.js", "fixtures.js",
+        "assets.js", "game-loop.js", "swarm-space.css",
+        "vendor/munder-difflin/portrait-art.js",
+      ];
+      for (const asset of swarmAssets) files["/swarm-space/" + asset] = "swarm-space/" + asset;
+      files["/swarm-space/"] = "swarm-space/index.html";
+      const staticPath = req.url.split("?")[0];
+      if (staticPath === "/swarm-space") {
+        res.writeHead(302, { Location: "/swarm-space/" });
+        return res.end();
+      }
+      if (Object.hasOwn(files, staticPath)) {
+        if (staticPath === "/swarm-space/" || staticPath === "/swarm-space/index.html") {
+          res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'");
+        }
         res.setHeader(
           "Content-Type",
-          req.url.endsWith(".jpg")
+          staticPath.endsWith(".jpg")
             ? "image/jpeg"
-            : req.url.endsWith(".js")
+            : staticPath.endsWith(".js")
               ? "text/javascript"
-              : req.url.endsWith(".css")
+              : staticPath.endsWith(".css")
                 ? "text/css"
                 : "text/html",
         );
-        return res.end(await readFile(join(web, files[req.url])));
+        return res.end(await readFile(join(web, files[staticPath])));
       }
       return send(404, { error: "NOT_FOUND" });
     }

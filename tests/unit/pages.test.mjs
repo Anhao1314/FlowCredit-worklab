@@ -11,6 +11,14 @@ test("Pages artifact is credential-free, network-disabled and supports cancelabl
     "utf8",
   );
   assert(html.includes("公开演示 · 合成资料 · 无真实 AI 调用"));
+  assert(html.includes('data-src="swarm-space/?embedded=1"'));
+  assert(html.includes('id="sidebar-toggle"'));
+  assert(html.includes('href="#research"'));
+  const office = readFileSync(new URL("../../.pages/swarm-space/index.html", import.meta.url), "utf8");
+  assert(office.includes("MOCK STATE"));
+  assert(office.includes('href="../#overview"'));
+  assert(readFileSync(new URL("../../.pages/swarm-space/vendor/munder-difflin/portrait-art.js", import.meta.url), "utf8").includes("sceneFrameBufs"));
+  assert(!readdirSync(new URL("../../.pages/swarm-space/", import.meta.url)).includes("serve.mjs"));
   assert(html.includes("connect-src 'none'"));
   assert(!html.includes('type="password"'));
   assert(!html.includes('type="text"'));

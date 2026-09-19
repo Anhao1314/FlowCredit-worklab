@@ -324,7 +324,7 @@ function disconnected() {
     });
 }
 function route() {
-  const target = location.hash.slice(1) || "ignition";
+  const target = location.hash.slice(1) || "overview";
   const home = target === "ignition";
   document.body.classList.toggle("ignition-mode", home);
   scene.show(home);
@@ -332,6 +332,7 @@ function route() {
   if (!home) $("key").value = "";
   const page = [
     "overview",
+    "research",
     "tasks",
     "memory",
     "activity",
@@ -350,6 +351,10 @@ function route() {
     if (a.hash === "#" + page) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
+  document.body.classList.toggle("office-home", !home && page === "overview");
+  if (!home && page === "overview" && !$("office-home").hasAttribute("src")) {
+    $("office-home").src = $("office-home").dataset.src;
+  }
   const source = document.getElementById(target);
   if (source?.classList.contains("source")) {
     let parent = source.parentElement;
@@ -364,6 +369,7 @@ function route() {
 function openIgnition() {
   afterIgnition = [
     "#overview",
+    "#research",
     "#tasks",
     "#memory",
     "#activity",
@@ -373,6 +379,12 @@ function openIgnition() {
     : "#overview";
   location.hash = "#ignition";
 }
+$("sidebar-toggle").onclick = () => {
+  const collapsed = document.body.classList.toggle("sidebar-collapsed");
+  $("sidebar-toggle").setAttribute("aria-expanded", String(!collapsed));
+  $("sidebar-toggle").setAttribute("aria-label", collapsed ? "展开功能栏" : "收起功能栏");
+  $("sidebar-toggle").title = collapsed ? "展开功能栏" : "收起功能栏";
+};
 $("power").onclick = () => {
   if (state?.runtime.modelOnline) $("power-panel").showModal();
   else openIgnition();

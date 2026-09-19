@@ -6,6 +6,7 @@ export function createScene(canvas, onPhase) {
     paint = new Image();
   let drawCount = 0,
     edgeImage = null,
+    pixelPaint = null,
     ready = false,
     w = 0,
     h = 0,
@@ -64,13 +65,34 @@ export function createScene(canvas, onPhase) {
     else if (!motionOff)
       idle = setTimeout(wake, s.phase === "online" ? 100 : 400);
   }
+  // Preserve the original crop and hand geometry; render its material on a
+  // small, palette-limited canvas to match the office's nearest-neighbor art.
+  function buildPixelMaterial() {
+    pixelPaint = document.createElement("canvas");
+    pixelPaint.width = 269;
+    pixelPaint.height = 124;
+    const p = pixelPaint.getContext("2d", { willReadFrequently: true });
+    p.drawImage(paint, 0, 0, 269, 124);
+    const pixels = p.getImageData(0, 0, 269, 124);
+    const palette = [
+      [81, 76, 67], [112, 94, 72], [145, 116, 86], [174, 139, 103],
+      [196, 163, 124], [215, 187, 149], [231, 209, 175], [244, 231, 206],
+    ];
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      const l = pixels.data[i] * .299 + pixels.data[i + 1] * .587 + pixels.data[i + 2] * .114;
+      const color = palette[Math.min(7, Math.floor(l / 32))];
+      pixels.data[i] = color[0]; pixels.data[i + 1] = color[1]; pixels.data[i + 2] = color[2];
+    }
+    p.putImageData(pixels, 0, 0);
+  }
   // Static edge material is calculated once. The expanding circle reveals this second rendering.
   function buildEdges() {
     const tmp = document.createElement("canvas");
     tmp.width = 1614;
     tmp.height = 741;
     const c = tmp.getContext("2d", { willReadFrequently: true });
-    c.drawImage(paint, 0, 0, tmp.width, tmp.height);
+    c.imageSmoothingEnabled = false;
+    c.drawImage(pixelPaint || paint, 0, 0, tmp.width, tmp.height);
     const src = c.getImageData(0, 0, tmp.width, tmp.height),
       out = c.createImageData(tmp.width, tmp.height),
       lum = new Float32Array(tmp.width * tmp.height);
@@ -100,9 +122,9 @@ export function createScene(canvas, onPhase) {
             lum[i + W + 1];
         const e = Math.min(185, Math.max(0, (Math.hypot(gx, gy) - 55) * 1.5));
         const warm = x / W < 0.38;
-        out.data[i * 4] = warm ? 212 : 132;
-        out.data[i * 4 + 1] = warm ? 192 : 189;
-        out.data[i * 4 + 2] = warm ? 152 : 229;
+        out.data[i * 4] = warm ? 142 : 89;
+        out.data[i * 4 + 1] = warm ? 112 : 121;
+        out.data[i * 4 + 2] = warm ? 74 : 98;
         out.data[i * 4 + 3] = e;
       }
     c.putImageData(out, 0, 0);
@@ -123,6 +145,7 @@ export function createScene(canvas, onPhase) {
     const { cx, cy, scale, gap } = geometry();
     ctx.save();
     ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = false;
     for (const side of [-1, 1]) {
       const shift =
           side * gap * (1 - closed) + (side === -1 ? 8 : -6) * scale * closed,
@@ -141,16 +164,13 @@ export function createScene(canvas, onPhase) {
   }
   function glow(x, y, r, alpha, warm = false) {
     ctx.save();
-    ctx.globalAlpha = alpha;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, warm ? "rgba(240,213,166,.9)" : "rgba(226,244,255,.95)");
-    g.addColorStop(
-      0.12,
-      warm ? "rgba(216,174,101,.2)" : "rgba(143,198,246,.22)",
-    );
-    g.addColorStop(1, "rgba(110,176,224,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    // Stepped square light replaces the old soft blue bloom.
+    for (let ring = 4; ring >= 1; ring--) {
+      const radius = Math.round(r * ring / 24 / 4) * 4;
+      ctx.globalAlpha = alpha * (5 - ring) * .07;
+      ctx.fillStyle = warm ? "#c4a37c" : "#7e9a80";
+      ctx.fillRect(Math.round(x / 4) * 4 - radius, Math.round(y / 4) * 4 - radius, radius * 2, radius * 2);
+    }
     ctx.restore();
   }
   function network(now, opacity, partial = 1) {
@@ -159,7 +179,7 @@ export function createScene(canvas, onPhase) {
     ctx.globalAlpha = opacity;
     const p = nodes.map((n) => ({ x: n.x * w, y: n.y * h }));
     paths.forEach(([a, b], i) => {
-      ctx.strokeStyle = "rgba(140,179,210,.27)";
+      ctx.strokeStyle = "rgba(92,116,93,.4)";
       ctx.lineWidth = 0.7;
       const x = p[a],
         y = p[b];
@@ -171,7 +191,7 @@ export function createScene(canvas, onPhase) {
         const t = (now / 7000 + i * 0.17) % 1,
           xx = (1 - t) ** 2 * x.x + 2 * (1 - t) * t * cx + t * t * y.x,
           yy = (1 - t) ** 2 * x.y + 2 * (1 - t) * t * cy + t * t * y.y;
-        ctx.fillStyle = "#c5e2f5";
+        ctx.fillStyle = "#536f5e";
         ctx.beginPath();
         ctx.arc(xx, yy, 1.5, 0, Math.PI * 2);
         ctx.fill();
@@ -181,7 +201,7 @@ export function createScene(canvas, onPhase) {
       const angle = i * 2.39996,
         rx = Math.cos(angle) * (w * 0.35),
         ry = Math.sin(angle) * (h * 0.25);
-      ctx.strokeStyle = "rgba(112,153,184,.14)";
+      ctx.strokeStyle = "rgba(92,116,93,.18)";
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
@@ -198,24 +218,24 @@ export function createScene(canvas, onPhase) {
     p.forEach((n, i) => {
       const lit = partial > i / 5;
       ctx.globalAlpha = opacity * (lit ? 1 : 0.12);
-      ctx.strokeStyle = "#688fac";
+      ctx.strokeStyle = "#817564";
       ctx.lineWidth = 0.7;
-      ctx.fillStyle = "#0a1725";
+      ctx.fillStyle = "#f2e8d5";
       ctx.beginPath();
-      ctx.arc(n.x, n.y, 10, 0, Math.PI * 2);
+      ctx.rect(n.x - 10, n.y - 10, 20, 20);
       ctx.fill();
       ctx.stroke();
       glow(n.x, n.y, 22, 0.22);
-      ctx.fillStyle = i === 0 ? "#d7bf92" : "#bad7eb";
+      ctx.fillStyle = i === 0 ? "#8d6839" : "#536f5e";
       ctx.beginPath();
-      ctx.arc(n.x, n.y, 2, 0, Math.PI * 2);
+      ctx.rect(n.x - 3, n.y - 3, 6, 6);
       ctx.fill();
       ctx.font = "11px -apple-system, sans-serif";
       ctx.textAlign = "left";
-      ctx.fillStyle = "#bed0df";
+      ctx.fillStyle = "#514c43";
       ctx.fillText(nodes[i].name, n.x + 18, n.y + 4);
       ctx.font = "9px -apple-system, sans-serif";
-      ctx.fillStyle = "#688ba7";
+      ctx.fillStyle = "#686459";
       ctx.fillText(nodes[i].label, n.x + 18, n.y + 18);
     });
     ctx.restore();
@@ -224,7 +244,7 @@ export function createScene(canvas, onPhase) {
     drawCount++;
     canvas.dataset.drawCount = String(drawCount);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#080d14";
+    ctx.fillStyle = "#e4dfd2";
     ctx.fillRect(0, 0, w, h);
     if (!ready) return;
     const { cx, cy, scale } = geometry(),
@@ -234,8 +254,8 @@ export function createScene(canvas, onPhase) {
     let closed = s.ever ? 1 : first ? ease(clamp((elapsed - 400) / 1050)) : 0;
     if (s.reduced && life.isAnimating()) closed = 1;
     ctx.save();
-    ctx.filter = "saturate(.62)";
-    material(paint, closed, s.phase === "online" ? 0.16 : s.ever ? 0.13 : 0.7);
+    ctx.filter = "none";
+    material(pixelPaint || paint, closed, s.phase === "online" ? 0.16 : s.ever ? 0.13 : 0.7);
     ctx.filter = "none";
     ctx.restore();
     const maxR = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)),
@@ -246,7 +266,7 @@ export function createScene(canvas, onPhase) {
       ctx.beginPath();
       ctx.arc(cx, cy, maxR * wave, 0, Math.PI * 2);
       ctx.clip();
-      ctx.fillStyle = "#080d14";
+      ctx.fillStyle = "#e4dfd2";
       ctx.fillRect(0, 0, w, h);
       material(
         edgeImage,
@@ -276,18 +296,18 @@ export function createScene(canvas, onPhase) {
       [cropBottom - 85, cropBottom, true],
     ]) {
       const g = ctx.createLinearGradient(0, start, 0, end);
-      g.addColorStop(0, reverse ? "rgba(8,13,20,0)" : "#080d14");
-      g.addColorStop(1, reverse ? "#080d14" : "rgba(8,13,20,0)");
+      g.addColorStop(0, reverse ? "rgba(228,223,210,0)" : "#e4dfd2");
+      g.addColorStop(1, reverse ? "#e4dfd2" : "rgba(228,223,210,0)");
       ctx.fillStyle = g;
       ctx.fillRect(0, start, w, end - start);
     }
     if (wave > 0 && wave < 1) {
-      ctx.strokeStyle = "rgba(205,228,245,.7)";
+      ctx.strokeStyle = "rgba(126,154,128,.7)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(cx, cy, maxR * wave, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(170,201,221,.1)";
+      ctx.strokeStyle = "rgba(126,154,128,.1)";
       ctx.lineWidth = 9;
       ctx.stroke();
     }
@@ -297,7 +317,7 @@ export function createScene(canvas, onPhase) {
       glow(cx - 20, cy, 100, energy, true);
       glow(cx + 20, cy, 120, energy);
       if (s.energy > 0.35) {
-        ctx.strokeStyle = `rgba(190,217,239,${s.energy * 0.12})`;
+        ctx.strokeStyle = `rgba(126,154,128,${s.energy * 0.12})`;
         ctx.beginPath();
         ctx.moveTo(cx - 25, cy + 4);
         ctx.lineTo(cx, cy - 3);
@@ -321,13 +341,13 @@ export function createScene(canvas, onPhase) {
       glow(cx + 8, cy, 180, a * 0.6);
       if (s.phase === "contact" && !s.reduced) {
         const flash = Math.sin(clamp((elapsed - 1450) / 350) * Math.PI) * 0.33;
-        ctx.fillStyle = `rgba(217,236,249,${flash})`;
+        ctx.fillStyle = `rgba(244,231,206,${flash})`;
         ctx.fillRect(0, 0, w, h);
       }
     }
     const opacity = s.phase === "online" ? 0.24 : 0.1;
     dust.forEach((p, i) => {
-      ctx.fillStyle = `rgba(160,191,216,${opacity})`;
+      ctx.fillStyle = `rgba(126,137,112,${opacity})`;
       ctx.beginPath();
       ctx.arc(
         p.x * w + (motionOff ? 0 : Math.sin(now / 14000 + i) * 5),
@@ -350,7 +370,7 @@ export function createScene(canvas, onPhase) {
   }
   paint.onload = () => {
     try {
-      if (ctx) buildEdges();
+      if (ctx) { buildPixelMaterial(); buildEdges(); }
       ready = true;
     } catch {
       ready = true;

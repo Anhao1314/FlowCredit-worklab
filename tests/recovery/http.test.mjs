@@ -66,9 +66,23 @@ test("loopback API, real process exit/restart, ephemeral key, same snapshot and 
   try {
     await start();
     assert.equal((await fetch(base)).status, 200);
+    const office = await fetch(base + "/swarm-space/?scene=STAND_DOWN");
+    assert.equal(office.status, 200);
+    assert((await office.text()).includes("MOCK STATE"));
+    for (const file of ["main.js", "organization-story.js", "organization-scene.js", "office-scene.js", "scene.js", "fixtures.js", "assets.js", "game-loop.js", "vendor/munder-difflin/portrait-art.js"]) {
+      const asset = await fetch(base + "/swarm-space/" + file);
+      assert.equal(asset.status, 200, file);
+      assert.equal(asset.headers.get("content-type"), "text/javascript");
+    }
+    assert.equal((await fetch(base + "/swarm-space/swarm-space.css")).headers.get("content-type"), "text/css");
+    assert.equal((await fetch(base + "/swarm-space/serve.mjs")).status, 404);
+    assert.equal((await fetch(base + "/swarm-space/.env")).status, 404);
+    assert.equal((await fetch(base + "/swarm-space", { redirect: "manual" })).status, 302);
     const page = await fetch(base).then((r) => r.text());
     assert(page.includes('id="ignition"'));
-    assert(!page.includes("<iframe"));
+    assert(page.includes('data-src="swarm-space/?embedded=1"'));
+    assert(office.headers.get("content-security-policy").includes("frame-ancestors 'self'"));
+    assert((await fetch(base)).headers.get("content-security-policy").includes("frame-ancestors 'none'"));
     for (const [path, type] of [
       ["/assets/creation-of-adam.jpg", "image/jpeg"],
       ["/creation-scene.js", "text/javascript"],

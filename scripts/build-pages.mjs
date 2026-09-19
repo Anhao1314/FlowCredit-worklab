@@ -34,6 +34,17 @@ try {
     await cp(join(root, "apps/web", name), join(output, name), {
       recursive: true,
     });
+  // Keep the standalone server and development notes out of the public artifact.
+  for (const name of [
+    "index.html", "main.js", "office-scene.js", "organization-story.js", "organization-scene.js", "scene.js", "fixtures.js",
+    "assets.js", "game-loop.js", "swarm-space.css",
+    "vendor/munder-difflin/portrait-art.js", "vendor/munder-difflin/LICENSE",
+  ]) {
+    const dest = join(output, "swarm-space", name);
+    await mkdir(join(dest, ".."), { recursive: true });
+    await cp(join(root, "apps/web/swarm-space", name), dest);
+  }
+  await cp(join(root, "THIRD_PARTY_NOTICES.md"), join(output, "swarm-space/THIRD_PARTY_NOTICES.md"));
   await cp(
     join(root, "apps/pages/demo-runtime.js"),
     join(output, "demo-runtime.js"),
@@ -109,8 +120,8 @@ try {
   // No real-key collection or submission exists in the public artifact.
   html = html
     .replace(
-      'class="ignition-mode"',
-      'class="ignition-mode" data-public-demo="true"',
+      'class="sidebar-collapsed"',
+      'class="sidebar-collapsed" data-public-demo="true"',
     )
     .replace("<body class=", "<body class=");
   html = html.replace(

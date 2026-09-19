@@ -16,3 +16,8 @@ coverage/
 *.tgz
 
 .pages/
+.peridot/memory.db
+.peridot/mem/
+.peridot/sessions/
+.peridot/skills/auto/
+.peridot/logs/
