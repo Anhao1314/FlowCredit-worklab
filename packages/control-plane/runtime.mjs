@@ -626,7 +626,12 @@ export class Runtime {
       REVIEW_INSTRUCTIONS,
     );
     const content = {
-      ...validateReview(raw, a, t.context.scope),
+      ...validateReview(
+        raw,
+        a,
+        t.context.scope,
+        input.sourceExcerpts.map((r) => r.id),
+      ),
       workProvider: providerId,
       contextDigest: t.digest,
       consumedResearchDigest: a.digest,
@@ -733,7 +738,12 @@ export class Runtime {
         );
         run = result.run;
         const content = {
-          ...validateReview(result.raw, a, t.context.scope),
+          ...validateReview(
+            result.raw,
+            a,
+            t.context.scope,
+            input.sourceExcerpts.map((r) => r.id),
+          ),
           workProvider: providerId,
           repeat: mode === "REPEAT_REVIEW",
           contextDigest: t.digest,

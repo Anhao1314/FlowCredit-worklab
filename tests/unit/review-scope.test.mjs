@@ -21,17 +21,18 @@ const review = (recordIds, extra = {}) => ({
 });
 
 test("reviewer recordIds are validated against the Task's authorized snapshot scope", () => {
-  // Valid recordIds inside the authorized scope pass.
+  // Valid recordIds inside the authorized scope and supplied pass.
   const valid = validateReview(
     JSON.stringify(review(["record-a", "record-b"])),
     artifact,
     scope,
+    ["record-a", "record-b"],
   );
   assert.deepEqual(valid.issues[0].recordIds, ["record-a", "record-b"]);
   // Empty recordIds are allowed: an issue may cite no record at all.
   assert.deepEqual(
-    validateReview(JSON.stringify(review([])), artifact, scope).issues[0]
-      .recordIds,
+    validateReview(JSON.stringify(review([])), artifact, scope, ["record-a"])
+      .issues[0].recordIds,
     [],
   );
   // Unknown / forged recordId, and a record that exists in another snapshot
@@ -42,7 +43,11 @@ test("reviewer recordIds are validated against the Task's authorized snapshot sc
     ["record-a", "record-outside"],
   ]) {
     assert.throws(
-      () => validateReview(JSON.stringify(review(recordIds)), artifact, scope),
+      () =>
+        validateReview(JSON.stringify(review(recordIds)), artifact, scope, [
+          "record-a",
+          "record-b",
+        ]),
       /REVIEW_RECORD_OUT_OF_SCOPE/,
     );
   }
@@ -51,24 +56,89 @@ test("reviewer recordIds are validated against the Task's authorized snapshot sc
     () => validateReview(JSON.stringify(review(["record-a"])), artifact),
     /INVALID_REVIEW_SCOPE/,
   );
+  // A non-array supplied set is a contract error, not an implicit pass.
+  assert.throws(
+    () =>
+      validateReview(
+        JSON.stringify(review(["record-a"])),
+        artifact,
+        scope,
+        "record-a",
+      ),
+    /INVALID_REVIEW_SUPPLIED/,
+  );
 });
 
-test("informational issues are scope-checked exactly like blocking issues", () => {
-  const informational = JSON.stringify({
-    ...review(["record-a"]),
-    decision: "PASS",
-    issues: [
-      {
-        code: "NOTE",
-        severity: "informational",
-        detail: "参考",
-        recordIds: ["record-outside"],
-      },
-    ],
-    requestedCorrections: [],
-  });
+test("a reviewer may only cite records whose source text was actually supplied", () => {
+  // Only record-a was supplied to this Reviewer run: citing record-b, which is
+  // authorized but unsupplied, is rejected before any artifact commit.
   assert.throws(
-    () => validateReview(informational, artifact, scope),
+    () =>
+      validateReview(
+        JSON.stringify(review(["record-b"])),
+        artifact,
+        scope,
+        ["record-a"],
+      ),
+    /REVIEW_RECORD_NOT_SUPPLIED/,
+  );
+  // Mixing a supplied and an unsupplied record is rejected as a whole.
+  assert.throws(
+    () =>
+      validateReview(
+        JSON.stringify(review(["record-a", "record-b"])),
+        artifact,
+        scope,
+        ["record-a"],
+      ),
+    /REVIEW_RECORD_NOT_SUPPLIED/,
+  );
+  // Without any supplied excerpt, nothing can be cited.
+  assert.throws(
+    () => validateReview(JSON.stringify(review(["record-a"])), artifact, scope),
+    /REVIEW_RECORD_NOT_SUPPLIED/,
+  );
+  // An issue that cites nothing is still allowed without supplied excerpts.
+  assert.deepEqual(
+    validateReview(JSON.stringify(review([])), artifact, scope).issues[0]
+      .recordIds,
+    [],
+  );
+});
+
+test("informational issues are scope- and excerpt-checked exactly like blocking issues", () => {
+  const informational = (recordIds) =>
+    JSON.stringify({
+      ...review(recordIds),
+      decision: "PASS",
+      issues: [
+        {
+          code: "NOTE",
+          severity: "informational",
+          detail: "参考",
+          recordIds,
+        },
+      ],
+      requestedCorrections: [],
+    });
+  assert.throws(
+    () =>
+      validateReview(
+        informational(["record-outside"]),
+        artifact,
+        scope,
+        ["record-a"],
+      ),
     /REVIEW_RECORD_OUT_OF_SCOPE/,
+  );
+  assert.throws(
+    () =>
+      validateReview(
+        informational(["record-b"]),
+        artifact,
+        scope,
+        ["record-a"],
+      ),
+    /REVIEW_RECORD_NOT_SUPPLIED/,
   );
 });

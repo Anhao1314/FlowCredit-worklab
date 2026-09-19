@@ -737,6 +737,157 @@ test("records outside the authorized snapshot scope reject the whole review befo
   }
 });
 
+test("a review that cites an authorized but unsupplied record is rejected before commit, for both providers", async () => {
+  for (const reviewer of ["native-harness", "claude-code"]) {
+    const dir = mkdtempSync(join(process.cwd(), ".test-review-supplied-"));
+    const original = globalThis.fetch;
+    let adapter, store, runtime;
+    const unsupplied = (input) => ({
+      reviewedArtifactId: input.researchArtifact.id,
+      decision: "PASS",
+      issues: [
+        {
+          code: "UNSUPPLIED_SUPPORT",
+          severity: "informational",
+          detail: "引用了未提供的记录",
+          recordIds: [input.task.scope[1]],
+        },
+      ],
+      requestedCorrections: [],
+      reviewLimitations: ["离线复核策略，非真实模型判断"],
+    });
+    try {
+      const setup = offlineSetup(dir, offlineFetch(unsupplied));
+      adapter = setup.adapter;
+      store = setup.store;
+      // The Researcher cites R-01 only, so the Reviewer receives only that
+      // excerpt even though the Task authorizes R-01 and R-02.
+      store.createBound(adapter.snapshot("E", 1, ["R-01", "R-02"]));
+      if (reviewer === "claude-code") store.setReviewer("E", "claude-code");
+      runtime = new Runtime(dir, store);
+      await runtime.init();
+      if (reviewer === "claude-code")
+        runtime.claudeExecutor.queryFactory = claudeQueryFixture(unsupplied);
+      runtime.activate("offline-review-supplied-sentinel");
+      await assert.rejects(
+        runtime.execute("E"),
+        /REVIEW_RECORD_NOT_SUPPLIED/,
+        reviewer,
+      );
+      const t = store.task("E");
+      assert.equal(t.state, "NEEDS_ATTENTION");
+      assert.equal(t.checkpoint.failureCode, "REVIEW_RECORD_NOT_SUPPLIED");
+      assert.equal(t.checkpoint.review, null);
+      assert.deepEqual(
+        store.snapshot().artifacts.map((a) => a.type),
+        ["RESEARCH"],
+        "the rejected review commits no artifact",
+      );
+      assert.equal(
+        store.artifact(t.checkpoint.research).type,
+        "RESEARCH",
+        "the research artifact is preserved",
+      );
+      assert.equal(
+        store.openRepairTaskId("E"),
+        null,
+        "a rejected review never creates a Repair Task",
+      );
+      const reviewRun = store.snapshot().runs.find((r) => r.role === "Reviewer");
+      assert.equal(reviewRun.state, "FAILED");
+      assert.equal(reviewRun.summary.failureCode, "REVIEW_RECORD_NOT_SUPPLIED");
+      assert.equal(reviewRun.summary.workProvider, reviewer);
+      // Provenance: the run records exactly what was supplied to it.
+      assert.deepEqual(reviewRun.summary.sourceExcerptIds, [t.context.scope[0]]);
+      if (reviewer === "claude-code") {
+        assert.equal(store.delegationCount(), 1);
+        assert.equal(store.count(), 2, "no native review request was reserved");
+      } else {
+        assert.equal(
+          store.count(),
+          3,
+          "the rejected review still consumed its request",
+        );
+      }
+    } finally {
+      if (runtime) await runtime.close().catch(() => {});
+      if (store) store.close();
+      if (adapter) adapter.close();
+      globalThis.fetch = original;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("comparison and repeat review may not cite authorized records that were not supplied", async () => {
+  const dir = mkdtempSync(join(process.cwd(), ".test-supplied-compare-"));
+  const original = globalThis.fetch;
+  let adapter, store, runtime, reviewCalls = 0;
+  const unsupplied = (input) => ({
+    reviewedArtifactId: input.researchArtifact.id,
+    decision: "PASS",
+    issues: [
+      {
+        code: "UNSUPPLIED_SUPPORT",
+        severity: "informational",
+        detail: "引用了未提供的记录",
+        recordIds: [input.task.scope[1]],
+      },
+    ],
+    requestedCorrections: [],
+    reviewLimitations: [],
+  });
+  try {
+    const setup = offlineSetup(
+      dir,
+      offlineFetch((input) => {
+        reviewCalls++;
+        return reviewCalls === 1 ? pass(input) : unsupplied(input);
+      }),
+    );
+    adapter = setup.adapter;
+    store = setup.store;
+    store.createBound(adapter.snapshot("E", 1, ["R-01", "R-02"]));
+    runtime = new Runtime(dir, store);
+    await runtime.init();
+    runtime.activate("offline-supplied-compare-sentinel");
+    await runtime.execute("E");
+    assert.equal(store.task("E").state, "MEMO_READY");
+    const checkpoint = store.task("E").checkpoint;
+
+    await assert.rejects(
+      runtime.compare("E", "native-harness", "REPEAT_REVIEW"),
+      /REVIEW_RECORD_NOT_SUPPLIED/,
+    );
+    assert.equal(
+      store.snapshot().artifacts.some((a) => a.type === "REVIEW_REPEAT"),
+      false,
+      "a rejected repeat review commits no artifact",
+    );
+    assert.deepEqual(store.task("E").checkpoint, checkpoint);
+
+    runtime.claudeExecutor.queryFactory = claudeQueryFixture(unsupplied);
+    await assert.rejects(
+      runtime.compare("E", "claude-code"),
+      /REVIEW_RECORD_NOT_SUPPLIED/,
+    );
+    assert.equal(
+      store.snapshot().artifacts.some((a) => a.type === "REVIEW_COMPARISON"),
+      false,
+      "a rejected comparison commits no artifact",
+    );
+    assert.deepEqual(store.task("E").checkpoint, checkpoint);
+    assert.equal(store.count(), 4, "the failed repeat review is still accounted");
+    assert.equal(store.delegationCount(), 1);
+  } finally {
+    if (runtime) await runtime.close().catch(() => {});
+    if (store) store.close();
+    if (adapter) adapter.close();
+    globalThis.fetch = original;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("same-provider re-review is rejected or explicitly named Repeat Review; cross-provider comparison must differ", async () => {
   const dir = mkdtempSync(join(process.cwd(), ".test-comparison-"));
   const original = globalThis.fetch;

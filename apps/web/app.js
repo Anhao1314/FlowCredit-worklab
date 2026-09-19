@@ -235,6 +235,8 @@ const errors = {
   TASK_NOT_RESUMABLE: "此任务需要人工检查，不能自动重试。",
   REVIEW_RECORD_OUT_OF_SCOPE:
     "复核引用了授权范围外的记录，整份复核被拒绝，未写入任何产物。",
+  REVIEW_RECORD_NOT_SUPPLIED:
+    "复核引用了本次未提供的原文，整份复核被拒绝，未写入任何产物。",
   COMPARISON_PROVIDER_MUST_DIFFER:
     "同一执行器不能标为跨执行器对照；请改用重复复核。",
   REPEAT_REVIEW_REQUIRES_ORIGINAL_PROVIDER:
