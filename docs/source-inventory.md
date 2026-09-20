@@ -1,5 +1,7 @@
 # Source inventory and assembly decisions
 
+This is the historical P0 assembly inventory, not the current capability list. Later Creation UI, 0.2 executor and M1 repair work is described in [current status](current-status.md).
+
 | Inspected source | Finding | Platform decision |
 | --- | --- | --- |
 | H0 capability / Harness composition | Foundation repeated in later experiments | Keep one credential provider and official package imports |

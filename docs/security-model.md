@@ -20,13 +20,13 @@ The fixture setup uses an explicitly test-enabled AdmissionLayer before Agent ex
 
 ## Budget, cancellation, recovery
 
-Requests reserve durable budget **before** dispatch. Failed or uncertain requests still consume it. Retry is disabled. A single task allows at most two Researcher requests and one Reviewer request; the baseline runtime caps total requests at six. Additional tools or continuations fail closed rather than silently expanding the budget.
+Native Harness requests reserve durable budget **before** dispatch. Failed or uncertain requests still consume it. Native request retry is disabled. A single task allows at most two Researcher requests and one Reviewer request; the baseline runtime caps total requests at six. Additional tools or continuations fail closed rather than silently expanding the budget. The Claude Code Reviewer separately caps delegated runs at two; SDK/provider internal request counts and retries are unknown, so this is not a six-request or cost cap for that executor. See [executor boundaries](local-platform.md#执行器与真实能力).
 
 Cancellation invalidates the execution generation and prevents late candidate commits. Startup marks interrupted attempts for inspection instead of rerunning them. Missing artifacts, context hashes, snapshots or revision bindings block recovery before inference. There is no exactly-once guarantee for remote billing if a process dies during a request.
 
 ## HTTP and repository
 
-The server listens only on 127.0.0.1. Host and Origin checks, JSON-only writes, request size limits, no-store responses and a restrictive content policy reduce unintended cross-origin activation. Local processes with user-level access remain outside the threat model.
+The server defaults to `127.0.0.1`; the local launcher retains that default. Compose explicitly sets `FLOWCREDIT_BIND_HOST=0.0.0.0` inside the container, with host publication restricted to `127.0.0.1:8800`. Host / Origin validation still requires `127.0.0.1:<configured port>`, including in Docker. Host and Origin checks, JSON-only writes, request size limits, no-store responses and a restrictive content policy reduce unintended cross-origin activation. Local processes with user-level access remain outside the threat model.
 
 Runtime databases, exports, logs, sessions, dependency trees, temporary fixtures and environment files are ignored. `npm run check` scans source candidates for credential patterns, machine paths, oversized files and runtime payloads. Pattern scans supplement explicit privacy review; they are not proof that arbitrary private text cannot exist.
 

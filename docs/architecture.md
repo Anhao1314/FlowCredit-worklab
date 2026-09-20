@@ -45,7 +45,7 @@ The adapter opens both synthetic Memory and Retrieval read-only, pins their read
 
 ## Runtime API
 
-All endpoints bind to the loopback host and reject incorrect Host. Mutations additionally require the same Origin and JSON.
+Direct local startup binds to `127.0.0.1` by default. Compose explicitly sets `FLOWCREDIT_BIND_HOST=0.0.0.0` inside the container and publishes only host loopback port 8800. All endpoints still reject Host values other than `127.0.0.1:<configured port>`; see the [startup mode table](../README.md#startup-modes-and-defaults). Mutations additionally require the same Origin and JSON.
 
 | Endpoint | Behavior |
 | --- | --- |

@@ -1,12 +1,14 @@
-# FlowCredit
+# FlowCredit-worklab
 
 **当前阶段：0.2 本地单用户平台，支持 Harness 原生执行与 Claude Code 独立复核；另有 GitHub Pages 模拟演示。**
 
 FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Researcher / Reviewer 协作，交付有来源、有限制的候选备忘。任务执行状态可以保存和恢复；正式研究记录的决定权始终属于人。
 
-[体验公开演示](https://anhao1314.github.io/d/) · [功能、架构与当前边界](docs/current-status.md) · [技术架构](docs/architecture.md) · [安全模型](docs/security-model.md)
+[体验公开演示](https://anhao1314.github.io/FlowCredit-worklab/) · [功能、架构与当前边界](docs/current-status.md) · [技术架构](docs/architecture.md) · [安全模型](docs/security-model.md)
 
 长期设计约束见 [目标架构原文](docs/ideal-architecture-reference.md) 与 [渐进演化决策](docs/executor-evolution.md)。目标架构不是当前能力清单。
+
+技术栈：Node.js 24、原生 HTML / CSS / JavaScript / Canvas、SQLite、官方 DeepSeek Harness 与 Claude Agent SDK；研究领域服务来自固定版本 FlowCredit Core。离线验证使用 `npm run check` 和 `npm test`。
 
 本地完整使用流程、启动／停止和能力边界见 [本地平台交付说明](docs/local-platform.md)。安装后运行 `npm run local:start`，打开 http://127.0.0.1:8893/ 。
 
@@ -19,7 +21,7 @@ FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Re
 | 研究资料 | 真实 FlowCredit Core 管理的独立合成库 | 构建时生成的公开合成快照 |
 | 状态保存 | SQLite 保存任务、检查点与产物 | 仅当前页面内存；刷新或重置清空 |
 | Key | 仅运行进程内存；停止或退出清除 | 不接受真实 Key |
-| 使用方式 | 安装依赖后运行 `npm run dev` | 直接打开上面的公开链接 |
+| 使用方式 | 推荐运行 `npm run local:start`（后台管理） | 直接打开上面的公开链接 |
 
 ## 已经可以做什么
 
@@ -37,31 +39,57 @@ FlowCredit 围绕已有研究观点，在固定版本和授权资料内组织 Re
 
 FlowCredit is a persistent research swarm where models provide temporary inference power, agents execute work, and research memory retains authority.
 
-This is a research system, not an agent chat room. Work belongs to persistent Duties and Tasks; Researcher and Reviewer run as fresh children of non-inferencing coordinator sessions through the official DeepSeek Harness `spawn` provider. A version-bound, read-only FlowCredit snapshot supplies the evidence. An AI candidate or Reviewer PASS never admits evidence or revises a claim.
+This is a research system, not an agent chat room. Work belongs to persistent Duties and Tasks; On the native Harness path, Researcher and Reviewer run as fresh children of non-inferencing coordinator sessions through the official DeepSeek Harness `spawn` provider. A version-bound, read-only FlowCredit snapshot supplies the evidence. An AI candidate or Reviewer PASS never admits evidence or revises a claim.
 
-**Current locally validated baseline: H0–H3.** P0 assembles that baseline into this repository. Event-driven resident loops and Human Apply are roadmap items, not implemented capabilities.
+**Historical locally validated baseline: H0–H3.** P0 assembled that baseline; the current 0.2 platform adds the two Reviewer executors and M1/M1.1 explicit, persistent repair tasks described in [current status](docs/current-status.md). Event-driven resident loops and Human Apply are roadmap items, not implemented capabilities.
 
-## Start
+## Start — recommended local workflow
 
 Requirements: **Node 24.19.0**, **npm 11.11.0**, and `tar` (macOS/Linux). The first install requires npm registry and GitHub access; the offline tests require no API key or model service.
 
 ```sh
-git clone https://github.com/Anhao1314/d.git
-cd d
+git clone https://github.com/Anhao1314/FlowCredit-worklab.git
+cd FlowCredit-worklab
 npm ci
-npm test
-npm run dev
+npm run local:start
 ```
 
-Open **http://127.0.0.1:8799**. The platform starts Dormant, initializes only a disposable Northstar **SYNTHETIC DATA** store, and supports browsing with the model off.
+Open **http://127.0.0.1:8893/**. The platform starts Dormant, initializes only an isolated Northstar **SYNTHETIC DATA** store, and supports browsing with the model off.
 
 1. Create E to bind Snapshot S1 to Claim v1.
 2. Optionally use **测试库新增 v2**, an explicit synthetic fixture administration action. E stays on v1.
 3. Enter a DeepSeek API key in Activation. The key stays in runtime RAM; never put it in `.env`, a command, or a file. Activation creates a capability; the first inference validates the provider credential.
 4. Resume E. Researcher obtains text through a real Harness read tool, then a fresh Reviewer examines the candidate and cited excerpts. A PASS yields a candidate memo, not research approval.
-5. After E is ready, create synthetic v2 if you have not already done so, then create F explicitly bound to v2 and resume it. Stand Down clears the key and releases sessions. Control-C stops the server. Restart restores work, never the key.
+5. After E is ready, create synthetic v2 if you have not already done so, then create F explicitly bound to v2 and resume it. Stand Down clears the key and releases sessions. Use `npm run local:stop` to stop the background server and `npm run local:status` to inspect it. Restart with `npm run local:start` restores work, never the key.
 
-The synthetic baseline has a **persistent six-request cap**: each task normally uses two Researcher requests (including the tool continuation) and one Reviewer request. Repeated Resume of completed work costs no new request. Do not delete the ledger to bypass a budget. A failed/uncertain attempt may require manual inspection.
+### Startup modes and defaults
+
+| Mode | Command | Browser URL | Default state directory / stop |
+| --- | --- | --- | --- |
+| Recommended local platform | `npm run local:start` | `http://127.0.0.1:8893/` | `.runtime/local-platform`; `npm run local:stop` |
+| Edit/debug (Node watch) | `npm run dev` | `http://127.0.0.1:8799/` | `.runtime`; Control-C |
+| Foreground, without watch | `npm start` | `http://127.0.0.1:8799/` | `.runtime`; Control-C |
+| Docker / OrbStack Compose | See deployment section below | `http://127.0.0.1:8800/` | Named volume at `/app/.runtime`; Compose stop |
+| GitHub Pages | Public demo link above | HTTPS; no localhost port | Browser memory only |
+
+The launcher in `scripts/local.mjs` explicitly selects 8893 and a separate state
+directory; direct `apps/runtime/server.mjs` startup defaults to 8799. Compose sets
+8800 inside the container and publishes it only on host `127.0.0.1:8800`.
+These are distinct modes, not conflicting URLs for one process. `npm start` is
+not a separate production deployment or a production-readiness claim. The npm
+package and Compose project remain named `flowcredit-platform`; the canonical
+repository is `Anhao1314/FlowCredit-worklab`.
+
+Use `127.0.0.1`, not `localhost`: the runtime checks the exact Host and Origin.
+`FLOWCREDIT_PORT` and `FLOWCREDIT_RUNTIME_DIR` override the local defaults; use the
+same values for `local:start`, `local:status` and `local:stop`. Do not share a state
+directory between running processes. `.env.example` describes direct-server
+settings and is not loaded automatically. The manual live entry uses direct-server
+defaults too. The standalone office design preview uses 8123 (`SWARM_SPACE_PORT`);
+it is a read-only mock, not another platform backend (see its
+[notes](apps/web/swarm-space/README.md)).
+
+The native Harness synthetic baseline has a **persistent six-request cap**: each task normally uses two Researcher requests (including the tool continuation) and one Reviewer request. Repeated Resume of completed work costs no new request. Do not delete the ledger to bypass a budget. A failed/uncertain attempt may require manual inspection. Claude Code Reviewer has a separate two-delegation cap; its internal model request count and cost are unknown (see [executor budgets](docs/local-platform.md#执行器与真实能力)).
 
 ## Planes in code
 
@@ -91,7 +119,7 @@ npm run test:live    # instructions only; no live call by default
 
 `FLOWCREDIT_LIVE=1 npm run test:live` starts the manual live smoke entry. Supply the key only in the UI. GitHub Actions runs source checks and offline tests; no DeepSeek secret or live inference is configured. P0 itself made **zero new live requests**; H0–H3 live results are explicitly historical local validation.
 
-All mutable data stays in ignored `.runtime/`: synthetic Knowledge SQLite, Control SQLite, candidate exports and non-secret comparison reports. Non-secret configuration: `FLOWCREDIT_PORT`, `FLOWCREDIT_RUNTIME_DIR`. `.env.example` is explanatory; the app does not load `.env` files. To inspect a completed run, keep its runtime directory rather than regenerate it.
+By default, local mutable data stays under ignored `.runtime/` (the launcher uses `.runtime/local-platform`): synthetic Knowledge SQLite, Control SQLite, candidate exports and non-secret comparison reports. Non-secret configuration: `FLOWCREDIT_PORT`, `FLOWCREDIT_RUNTIME_DIR`. `.env.example` is explanatory; the app does not load `.env` files. To inspect a completed run, keep its runtime directory rather than regenerate it.
 
 See [native Harness collaboration](docs/harness-collaboration.md), [architecture](docs/architecture.md), [security model](docs/security-model.md), [source inventory](docs/source-inventory.md), and [validated milestones](docs/validated-milestones.md).
 
@@ -137,7 +165,7 @@ served by the same loopback runtime; there is no CDN or embedded old demo. Use
 
 ## Public GitHub Pages demo
 
-[Open the public demo](https://anhao1314.github.io/d/).
+[Open the public demo](https://anhao1314.github.io/FlowCredit-worklab/).
 
 Pages is a separate **synthetic, browser-only demonstration**, not the Node/Harness
 runtime. It shares the Creation scene and workspace presentation, but replaces the
@@ -162,7 +190,7 @@ the backend when its imported source files change. No frontend build is needed.
 Backend restarts clear the temporary Key. Persistent tasks remain in `.runtime/`;
 an interrupted model attempt may require inspection rather than automatic retry.
 Use `npm start` when you want a server without automatic restarts. Stop either
-command with Control-C. The server binds only to the local loopback interface.
+command with Control-C. The server binds to the local loopback interface by default; Compose explicitly overrides the container bind host as described below.
 
 ## OrbStack deployment
 

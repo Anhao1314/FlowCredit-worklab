@@ -4,9 +4,11 @@
 
 ## 安装与启动
 
-要求 Node 24.19.0、npm 11.11.0，macOS 或 Linux。Claude Code 使用官方 SDK 0.3.263 的对应平台可选二进制依赖；安装时不要省略 optional dependencies。首次安装需要访问 npm 和固定 Core 源码。
+要求 Node 24.19.0、npm 11.11.0，macOS 或 Linux，且需 `tar`。Claude Code 使用官方 SDK 0.3.263 的对应平台可选二进制依赖；安装时不要省略 optional dependencies。首次安装需要访问 npm 和固定 Core 源码。
 
 ```sh
+git clone https://github.com/Anhao1314/FlowCredit-worklab.git
+cd FlowCredit-worklab
 npm ci
 npm run check
 npm test
@@ -15,7 +17,9 @@ npm run local:start
 
 打开 http://127.0.0.1:8893/ 。`local:start` 在后台启动独立 Node 进程，关闭启动终端不会结束它。`npm run local:status` 查看状态，`npm run local:stop` 先 Stand Down 再停止进程。重复启动不会复制进程；启动器拒绝接管或停止端口上不属于其管理记录的服务。
 
-本地启动器默认数据目录 `.runtime/local-platform`。`npm start` 仍保留开发兼容行为（前台、8799、`.runtime`），不要把两种启动方式的数据目录混淆。可以用非敏感的 `FLOWCREDIT_PORT` / `FLOWCREDIT_RUNTIME_DIR` 指定地址和存储位置；Key 只在页面输入，不接受配置文件或环境变量 fallback。
+本地启动器默认数据目录 `.runtime/local-platform`。`npm run dev`（watch）与 `npm start`（不自动重启）直接启动同一 server，默认均为前台、8799、`.runtime`，用 Control-C 停止，不要把两种启动方式的数据目录混淆。可以用非敏感的 `FLOWCREDIT_PORT` / `FLOWCREDIT_RUNTIME_DIR` 指定端口和存储位置；启动、状态查询和停止必须使用相同的覆盖值，不要让多个进程共用数据目录。`.env.example` 对应直接启动 server 的默认值，应用不会自动读取 `.env`。使用 `127.0.0.1` 而不是 `localhost`，因为 Host / Origin 按前者校验；Key 只在页面输入，不接受配置文件或环境变量 fallback。
+
+Docker / OrbStack Compose 使用 `http://127.0.0.1:8800/`，容器内显式监听 `0.0.0.0:8800`，数据保存在独立 named volume。GitHub Pages 是 HTTPS 静态模拟，不涉及本地端口。完整模式表与 Docker 命令见 [README](../README.md#startup-modes-and-defaults)。
 
 ## 一次完整工作
 
@@ -56,7 +60,9 @@ SDK 的工具、MCP、项目配置继承和会话保存均关闭，使用独立�
 
 对照复核失败不改变原任务 MEMO_READY；失败尝试仍计入对应预算。修复循环为每个新运行单独记账：创建修复任务本身不消耗预算，恢复已提交的修复阶段不重复派发；START_REPAIR 在派发前检查预算，不足时以 `WORK_BUDGET_EXHAUSTED` 拒绝，不产生新请求或新产物；失败重派与自由增加预算仍未提供，避免隐式重复费用。需要正式长期研究工作流时应另行设计预算配置与任务管理，不能删除账本绕过限制。
 
-## 本轮验证
+## 历史交付验证（0.2 / M1.1）
+
+以下为对应交付阶段记录，不表示当前每次提交都重新运行了真实模型或浏览器验收。
 
 - 真实 Harness Researcher + 真实 Claude Code Reviewer 生成 Task E 的 Candidate Memo；Claude 复核 PASS。
 - 同一 Research Artifact 的原生 Reviewer 对照复核 PASS；两个 Reviewer 的 inputDigest 一致。
